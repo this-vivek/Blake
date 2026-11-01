@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.core.db import Db
 from app.core.registry import Registry
 from app.core.router import run_turn
+from app.meal_refresh import refresh_meal_suggestion
 from app.today import build_today
 
 app = FastAPI(title="Blake")
@@ -73,6 +74,11 @@ def suggest_workout(location: str, muscle_group: str):
 @app.get("/suggest/meal", dependencies=[Depends(require_api_key)])
 def suggest_meal(meal: str):
     return registry.call("meals__suggest_meal", {"meal": meal}, db)
+
+
+@app.get("/suggest/meal/refresh", dependencies=[Depends(require_api_key)])
+def suggest_meal_refresh(meal: str):
+    return refresh_meal_suggestion(client, registry, db, meal)
 
 
 class LogMealItem(BaseModel):
