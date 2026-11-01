@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -55,26 +56,32 @@ fun BlakeApp() {
     val navController = rememberNavController()
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
 
+    val isFullScreenRoute = currentRoute == "session"
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Blake") },
-                actions = {
-                    IconButton(onClick = { navController.navigate("settings") }) {
-                        Text("⚙", style = MaterialTheme.typography.titleLarge)
-                    }
-                },
-            )
+            if (!isFullScreenRoute) {
+                TopAppBar(
+                    title = { Text("Blake") },
+                    actions = {
+                        IconButton(onClick = { navController.navigate("settings") }) {
+                            Text("⚙", style = MaterialTheme.typography.titleLarge)
+                        }
+                    },
+                )
+            }
         },
         bottomBar = {
-            NavigationBar {
-                DESTINATIONS.forEach { dest ->
-                    NavigationBarItem(
-                        selected = currentRoute == dest.route,
-                        onClick = { navController.navigateSingleTopTo(dest.route) },
-                        icon = { Text(dest.glyph, style = MaterialTheme.typography.titleMedium) },
-                        label = { Text(dest.label) },
-                    )
+            if (!isFullScreenRoute) {
+                NavigationBar {
+                    DESTINATIONS.forEach { dest ->
+                        NavigationBarItem(
+                            selected = currentRoute == dest.route,
+                            onClick = { navController.navigateSingleTopTo(dest.route) },
+                            icon = { Text(dest.glyph, style = MaterialTheme.typography.titleMedium) },
+                            label = { Text(dest.label) },
+                        )
+                    }
                 }
             }
         },
@@ -82,10 +89,18 @@ fun BlakeApp() {
         NavHost(
             navController = navController,
             startDestination = "today",
-            modifier = Modifier.padding(innerPadding),
+            modifier = Modifier.padding(if (isFullScreenRoute) PaddingValues(0.dp) else innerPadding),
         ) {
             composable("today") { TodayScreen() }
-            composable("workout") { WorkoutScreen() }
+            composable("workout") {
+                WorkoutScreen(onStartSession = { exercises ->
+                    WorkoutSessionStore.pendingExercises = exercises
+                    navController.navigate("session")
+                })
+            }
+            composable("session") {
+                SessionScreen(onFinish = { navController.popBackStack() })
+            }
             composable("timeline") { TimelineScreen() }
             composable("insights") { InsightsScreen() }
             composable("settings") {

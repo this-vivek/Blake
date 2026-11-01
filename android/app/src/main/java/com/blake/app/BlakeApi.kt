@@ -84,6 +84,28 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
         }
     }
 
+    fun logSet(exercise: String, weightKg: Double, reps: Int): Result<String> {
+        val body = JSONObject()
+            .put("exercise", exercise)
+            .put("weight_kg", weightKg)
+            .put("reps", reps)
+            .toString()
+        return try {
+            val request = Request.Builder()
+                .url("$baseUrl/log/set")
+                .header("X-API-Key", apiKey)
+                .post(body.toRequestBody("application/json".toMediaType()))
+                .build()
+            client.newCall(request).execute().use { resp ->
+                val respBody = resp.body?.string().orEmpty()
+                if (resp.isSuccessful) Result.success(respBody)
+                else Result.failure(IOException("HTTP ${resp.code}: $respBody"))
+            }
+        } catch (e: IOException) {
+            Result.failure(e)
+        }
+    }
+
     fun getGoals(): Result<String> = get("$baseUrl/goals")
 
     fun putGoals(
