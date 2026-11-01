@@ -89,6 +89,16 @@ fun BlakeApp() {
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
 
     Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Blake") },
+                actions = {
+                    IconButton(onClick = { navController.navigate("settings") }) {
+                        Text("⚙", style = MaterialTheme.typography.titleLarge)
+                    }
+                },
+            )
+        },
         bottomBar = {
             NavigationBar {
                 DESTINATIONS.forEach { dest ->
@@ -111,6 +121,9 @@ fun BlakeApp() {
             composable("log") { ChatScreen() }
             composable("timeline") { HistoryScreen() }
             composable("insights") { InsightsScreen() }
+            composable("settings") {
+                SettingsScreen(onBack = { navController.popBackStack() })
+            }
         }
     }
 }
@@ -120,7 +133,6 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var text by remember { mutableStateOf("") }
     var imageUri by remember { mutableStateOf<Uri?>(null) }
-    var showSettings by remember { mutableStateOf(false) }
 
     val pickImage = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -133,13 +145,7 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("Blake", style = MaterialTheme.typography.headlineMedium)
-            TextButton(onClick = { showSettings = true }) { Text("Settings") }
-        }
+        Text("Log", style = MaterialTheme.typography.headlineMedium)
 
         OutlinedTextField(
             value = text,
@@ -176,51 +182,4 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
             Text(vm.responseText)
         }
     }
-
-    if (showSettings) {
-        SettingsDialog(onDismiss = { showSettings = false })
-    }
-}
-
-@Composable
-fun SettingsDialog(onDismiss: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val prefs = context.getSharedPreferences(Prefs.NAME, Context.MODE_PRIVATE)
-    var baseUrl by remember {
-        mutableStateOf(prefs.getString(Prefs.KEY_BASE_URL, Prefs.DEFAULT_BASE_URL) ?: Prefs.DEFAULT_BASE_URL)
-    }
-    var apiKey by remember { mutableStateOf(prefs.getString(Prefs.KEY_API_KEY, "") ?: "") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Settings") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = baseUrl,
-                    onValueChange = { baseUrl = it },
-                    label = { Text("Server URL") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    label = { Text("API Key") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                prefs.edit()
-                    .putString(Prefs.KEY_BASE_URL, baseUrl.trimEnd('/'))
-                    .putString(Prefs.KEY_API_KEY, apiKey)
-                    .apply()
-                onDismiss()
-            }) { Text("Save") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
 }

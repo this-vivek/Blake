@@ -79,6 +79,36 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
         }
     }
 
+    fun getGoals(): Result<String> = get("$baseUrl/goals")
+
+    fun putGoals(
+        kcal: Double? = null,
+        proteinG: Double? = null,
+        dailySpend: Double? = null,
+        workoutDaysPerWeek: Int? = null,
+    ): Result<String> {
+        val body = JSONObject().apply {
+            kcal?.let { put("kcal", it) }
+            proteinG?.let { put("protein_g", it) }
+            dailySpend?.let { put("daily_spend", it) }
+            workoutDaysPerWeek?.let { put("workout_days_per_week", it) }
+        }.toString()
+        return try {
+            val request = Request.Builder()
+                .url("$baseUrl/goals")
+                .header("X-API-Key", apiKey)
+                .put(body.toRequestBody("application/json".toMediaType()))
+                .build()
+            client.newCall(request).execute().use { resp ->
+                val respBody = resp.body?.string().orEmpty()
+                if (resp.isSuccessful) Result.success(respBody)
+                else Result.failure(IOException("HTTP ${resp.code}: $respBody"))
+            }
+        } catch (e: IOException) {
+            Result.failure(e)
+        }
+    }
+
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
     private fun get(url: String): Result<String> {
