@@ -1,0 +1,232 @@
+package com.blake.app
+
+import android.content.Context
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.blake.app.ui.theme.Format
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
+
+private val MODULES = listOf("meals", "workouts", "expenses", "tasks")
+
+data class TimelineEntry(val id: Int, val dayLabel: String, val text: String, val voided: Boolean)
+
+private sealed class TimelineRow {
+    data class Header(val label: String) : TimelineRow()
+    data class Item(val entry: TimelineEntry) : TimelineRow()
+}
+
+class TimelineViewModel : ViewModel() {
+    var summaryText by mutableStateOf("Loading summary...")
+    var selectedModule by mutableStateOf(MODULES.first())
+    var entries by mutableStateOf<List<TimelineEntry>>(emptyList())
+    var isLoading by mutableStateOf(false)
+
+    fun loadSummary(context: Context) {
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.summary() }
+            summaryText = result.fold(
+                onSuccess = { formatSummary(it) },
+                onFailure = { "Couldn't load summary: ${it.message}" }
+            )
+        }
+    }
+
+    fun loadHistory(context: Context, module: String) {
+        selectedModule = module
+        isLoading = true
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.history(module, limit = 100) }
+            isLoading = false
+            entries = result.fold(
+                onSuccess = { parseTimeline(it) },
+                onFailure = { listOf(TimelineEntry(-1, "", "Error: ${it.message}", false)) }
+            )
+        }
+    }
+
+    fun undo(context: Context, eventId: Int) {
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.voidEvent(eventId) }
+            result.onSuccess {
+                entries = entries.map { if (it.id == eventId) it.copy(voided = true) else it }
+            }
+        }
+    }
+}
+
+private fun formatSummary(json: String): String {
+    val obj = JSONObject(json)
+    val parts = mutableListOf<String>()
+    obj.optJSONObject("meals")?.optJSONObject("today")?.let {
+        parts.add("Meals today: ${Format.kcal(it.optDouble("kcal", 0.0))}")
+    }
+    obj.optJSONObject("expenses")?.optJSONObject("today")?.let {
+        parts.add("Spent today: ${Format.currency(it.optDouble("total", 0.0))}")
+    }
+    obj.optJSONObject("tasks")?.optJSONArray("open_tasks")?.let {
+        parts.add("Open tasks: ${it.length()}")
+    }
+    return if (parts.isEmpty()) "No data yet" else parts.joinToString("   |   ")
+}
+
+private fun isSameDay(a: Calendar, b: Calendar) =
+    a.get(Calendar.YEAR) == b.get(Calendar.YEAR) && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
+
+private fun dayLabel(epochSeconds: Double): String {
+    val cal = Calendar.getInstance().apply { timeInMillis = (epochSeconds * 1000).toLong() }
+    val today = Calendar.getInstance()
+    val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
+    return when {
+        isSameDay(cal, today) -> "Today"
+        isSameDay(cal, yesterday) -> "Yesterday"
+        else -> SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(cal.time)
+    }
+}
+
+private fun formatEntryText(kind: String, payload: JSONObject): String = when (kind) {
+    "meal" -> {
+        val total = payload.optJSONObject("total")
+        "${payload.optString("meal")}: ${Format.kcal(total?.optDouble("kcal", 0.0) ?: 0.0)}"
+    }
+    "set" -> "${payload.optString("exercise")} ${Format.weightKg(payload.optDouble("weight_kg"))}" +
+        " x${payload.optInt("reps")} (e1RM ${Format.weightKg(payload.optDouble("e1rm"))})"
+    "expense" -> "${payload.optString("category")}: ${Format.currency(payload.optDouble("amount"))}" +
+        (payload.optString("note").takeIf { it.isNotBlank() }?.let { " — $it" } ?: "")
+    "task" -> "To-do: ${payload.optString("title")}"
+    "task_done" -> "Done: ${payload.optString("title")}"
+    "unmatched" -> "Unmatched: ${payload.optString("name")} (${payload.optDouble("grams")}g)"
+    else -> payload.toString()
+}
+
+// /history returns the raw append-only log, including "void" events — those aren't shown as
+// entries themselves, they just mark their target as voided (struck through, not hidden —
+// seeing a correction happened is part of the audit trail).
+private fun parseTimeline(json: String): List<TimelineEntry> {
+    val events: JSONArray = JSONObject(json).optJSONArray("events") ?: JSONArray()
+    val voidedIds = mutableSetOf<Int>()
+    data class Raw(val id: Int, val ts: Double, val kind: String, val payload: JSONObject)
+    val raw = mutableListOf<Raw>()
+    for (i in 0 until events.length()) {
+        val e = events.getJSONObject(i)
+        val kind = e.optString("kind")
+        val payload = e.optJSONObject("payload") ?: JSONObject()
+        if (kind == "void") {
+            voidedIds.add(payload.optInt("target_id"))
+        } else {
+            raw.add(Raw(e.optInt("id"), e.optDouble("ts"), kind, payload))
+        }
+    }
+    return raw.map { r ->
+        TimelineEntry(r.id, dayLabel(r.ts), formatEntryText(r.kind, r.payload), r.id in voidedIds)
+    }
+}
+
+private fun buildRows(entries: List<TimelineEntry>): List<TimelineRow> {
+    val rows = mutableListOf<TimelineRow>()
+    var lastLabel: String? = null
+    for (e in entries) {
+        if (e.dayLabel != lastLabel) {
+            rows.add(TimelineRow.Header(e.dayLabel))
+            lastLabel = e.dayLabel
+        }
+        rows.add(TimelineRow.Item(e))
+    }
+    return rows
+}
+
+@Composable
+fun TimelineScreen(vm: TimelineViewModel = viewModel()) {
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        vm.loadSummary(context)
+        vm.loadHistory(context, vm.selectedModule)
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Today", style = MaterialTheme.typography.titleMedium)
+        Text(vm.summaryText, modifier = Modifier.padding(vertical = 8.dp))
+
+        Divider()
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MODULES.forEach { module ->
+                FilterChip(
+                    selected = vm.selectedModule == module,
+                    onClick = { vm.loadHistory(context, module) },
+                    label = { Text(module) }
+                )
+            }
+        }
+
+        if (vm.isLoading) {
+            Text("Loading...")
+        } else {
+            val rows = remember(vm.entries) { buildRows(vm.entries) }
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(rows) { row ->
+                    when (row) {
+                        is TimelineRow.Header -> Text(
+                            row.label,
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                        )
+                        is TimelineRow.Item -> TimelineEntryCard(row.entry, vm)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimelineEntryCard(entry: TimelineEntry, vm: TimelineViewModel) {
+    val context = LocalContext.current
+    var expanded by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded }
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                entry.text,
+                style = if (entry.voided) {
+                    MaterialTheme.typography.bodyMedium.copy(textDecoration = TextDecoration.LineThrough)
+                } else {
+                    MaterialTheme.typography.bodyMedium
+                }
+            )
+            if (entry.voided) {
+                Text("Voided", style = MaterialTheme.typography.labelSmall)
+            } else if (expanded) {
+                TextButton(onClick = { vm.undo(context, entry.id) }) { Text("Undo") }
+            }
+        }
+    }
+}

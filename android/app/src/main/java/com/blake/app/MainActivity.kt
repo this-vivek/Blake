@@ -84,7 +84,7 @@ fun BlakeApp() {
             modifier = Modifier.padding(innerPadding),
         ) {
             composable("today") { TodayScreen() }
-            composable("timeline") { HistoryScreen() }
+            composable("timeline") { TimelineScreen() }
             composable("insights") { InsightsScreen() }
             composable("settings") {
                 SettingsScreen(onBack = { navController.popBackStack() })
