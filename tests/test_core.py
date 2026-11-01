@@ -138,6 +138,15 @@ def test_voided_set_excluded_from_pr_detection(reg, db):
     assert out["first_time"] and not out["is_pr"]
 
 
+def test_log_set_retry_with_same_client_id_does_not_double_log(reg, db):
+    args = {"exercise": "squat", "weight_kg": 80, "reps": 5, "client_id": "set-retry-1"}
+    first = reg.call("workouts__log_set", args, db)
+    second = reg.call("workouts__log_set", args, db)
+    assert first["e1rm"] == second["e1rm"]
+    assert second.get("duplicate") is True
+    assert len(db.query("workouts", "set")) == 1
+
+
 class FakeClient:
     """Scripted: first call -> tool_use, second -> final text."""
     def __init__(self):

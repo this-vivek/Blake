@@ -43,6 +43,18 @@ def test_complete_task_no_match_errors(reg, db):
     assert "error" in out
 
 
+def test_complete_by_id(reg, db):
+    reg.call("tasks__add_task", {"title": "Buy milk"}, db)
+    task_id = db.query("tasks", "task")[0]["id"]
+    out = reg.call("tasks__complete_by_id", {"task_id": task_id}, db)
+    assert out["completed"]["title"] == "Buy milk"
+    assert reg.call("tasks__list_tasks", {}, db)["open_tasks"] == []
+
+
+def test_complete_by_id_unknown_id_errors(reg, db):
+    assert "error" in reg.call("tasks__complete_by_id", {"task_id": 99999}, db)
+
+
 def test_voided_task_excluded_from_open_list(reg, db):
     reg.call("tasks__add_task", {"title": "Buy milk"}, db)
     task_id = db.query("tasks", "task")[0]["id"]

@@ -89,6 +89,23 @@ def log_meal_direct(req: LogMealRequest):
     return registry.call("meals__log_meal", args, db)
 
 
+class LogSetRequest(BaseModel):
+    exercise: str
+    weight_kg: float
+    reps: int
+    client_id: str | None = None
+
+
+@app.post("/log/set", dependencies=[Depends(require_api_key)])
+def log_set_direct(req: LogSetRequest):
+    return registry.call("workouts__log_set", req.model_dump(), db)
+
+
+@app.post("/tasks/{task_id}/complete", dependencies=[Depends(require_api_key)])
+def complete_task_direct(task_id: int):
+    return registry.call("tasks__complete_by_id", {"task_id": task_id}, db)
+
+
 @app.post("/events/{event_id}/void", dependencies=[Depends(require_api_key)])
 def void_event(event_id: int):
     return registry.call("events__void_event", {"event_id": event_id}, db)

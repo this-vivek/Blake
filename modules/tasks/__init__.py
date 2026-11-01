@@ -22,6 +22,11 @@ def add_task(args: dict, db) -> dict:
     return {"logged": {"id": task_id, **entry}}
 
 
+def _complete(db, match: dict) -> dict:
+    db.append("tasks", "task_done", {"task_id": match["id"], "title": match["title"]})
+    return {"completed": match}
+
+
 def complete_task(args: dict, db) -> dict:
     title = str(args.get("title", "")).strip().lower()
     if not title:
@@ -32,8 +37,18 @@ def complete_task(args: dict, db) -> dict:
         match = next((t for t in open_tasks if title in t["title"].lower()), None)
     if not match:
         return {"error": f"no open task matching '{title}'"}
-    db.append("tasks", "task_done", {"task_id": match["id"], "title": match["title"]})
-    return {"completed": match}
+    return _complete(db, match)
+
+
+def complete_by_id(args: dict, db) -> dict:
+    try:
+        task_id = int(args["task_id"])
+    except (KeyError, ValueError, TypeError):
+        return {"error": "task_id is required"}
+    match = next((t for t in _open_tasks(db) if t["id"] == task_id), None)
+    if not match:
+        return {"error": f"no open task with id {task_id}"}
+    return _complete(db, match)
 
 
 def list_tasks(args: dict, db) -> dict:
@@ -62,6 +77,13 @@ module = Module(
             {"type": "object", "required": ["title"], "properties": {
                 "title": {"type": "string"}}},
             complete_task,
+        ),
+        Tool(
+            "complete_by_id",
+            "Mark an open task as done by its numeric id (from list_tasks).",
+            {"type": "object", "required": ["task_id"], "properties": {
+                "task_id": {"type": "integer"}}},
+            complete_by_id,
         ),
         Tool("list_tasks", "List all open (not completed) tasks.",
              {"type": "object", "properties": {}}, list_tasks),

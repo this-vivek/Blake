@@ -27,3 +27,6 @@
 {"text": "I want to hit 2200 calories a day", "expect": ["goals__set_goal"]}
 {"text": "change my daily spending budget to 800 rupees", "expect": ["goals__set_goal"]}
 {"text": "what are my current goals?", "expect": ["goals__get_goals"]}
+{"text": "mark task id 7 as complete", "expect": ["tasks__complete_by_id"]}
+{"text": "complete task 3 from my list", "expect": ["tasks__complete_by_id"]}
+{"text": "finish task #12", "expect": ["tasks__complete_by_id"]}
