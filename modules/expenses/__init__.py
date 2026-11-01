@@ -1,5 +1,4 @@
-import time
-
+from app.core import clock
 from app.core.module import Module, Tool
 
 CATEGORIES = ["food", "transport", "shopping", "bills", "entertainment", "health", "other"]
@@ -22,7 +21,7 @@ def log_expense(args: dict, db) -> dict:
 
 
 def daily_summary(args: dict, db) -> dict:
-    since = time.time() - 24 * 3600
+    since = clock.day_start()
     total = 0.0
     by_category: dict[str, float] = {}
     for e in db.query("expenses", "expense", since=since):
@@ -30,7 +29,7 @@ def daily_summary(args: dict, db) -> dict:
         cat = e["payload"]["category"]
         total += amt
         by_category[cat] = round(by_category.get(cat, 0.0) + amt, 2)
-    return {"last_24h": {"total": round(total, 2), "by_category": by_category}}
+    return {"today": {"total": round(total, 2), "by_category": by_category}}
 
 
 module = Module(
@@ -50,7 +49,7 @@ module = Module(
                 "note": {"type": "string"}}},
             log_expense,
         ),
-        Tool("daily_summary", "Spending totals for the last 24 hours.",
+        Tool("daily_summary", "Spending totals for today (local calendar day).",
              {"type": "object", "properties": {}}, daily_summary),
     ],
 )

@@ -1,6 +1,7 @@
 import re
 import time
 
+from app.core import clock
 from app.core.module import Module, Tool
 
 # Per 100 g: kcal, protein, carbs, fat. Static dataset (approx. USDA/IFCT values) so lookups
@@ -185,12 +186,12 @@ def log_meal(args: dict, db) -> dict:
 
 
 def daily_summary(args: dict, db) -> dict:
-    since = time.time() - 24 * 3600
+    since = clock.day_start()
     tot = {"kcal": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
     for e in db.query("meals", "meal", since=since):
         for k in tot:
             tot[k] += e["payload"]["total"][k]
-    return {"last_24h": {k: round(v, 1) for k, v in tot.items()}}
+    return {"today": {k: round(v, 1) for k, v in tot.items()}}
 
 
 # Curated combos per meal type, built from FOODS entries so macros stay real.
@@ -251,7 +252,9 @@ def suggest_meal(args: dict, db) -> dict:
     fresh = [c for c in combos if not (set(c) & recent_names)]
     pool = fresh or combos  # if everything's been eaten recently, suggest anyway
 
-    day_index = int(time.time() // 86400)
+    # day_start() is exactly 86400s apart between consecutive local midnights (no DST in
+    # Asia/Kolkata), so this flips at local midnight rather than UTC midnight.
+    day_index = int(clock.day_start() // 86400)
     combo = pool[day_index % len(pool)]
 
     items = []
@@ -285,7 +288,7 @@ module = Module(
                               "name": {"type": "string"}, "grams": {"type": "number"}}}}}},
             log_meal,
         ),
-        Tool("daily_summary", "Macro totals for the last 24 hours.",
+        Tool("daily_summary", "Macro totals for today (local calendar day).",
              {"type": "object", "properties": {}}, daily_summary),
         Tool(
             "suggest_meal",

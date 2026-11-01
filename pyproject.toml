@@ -5,6 +5,7 @@ requires-python = ">=3.10"
 dependencies = [
     "anthropic>=0.40", "fastapi>=0.110", "uvicorn>=0.29", "python-multipart>=0.0.9",
     "psycopg2-binary>=2.9",
+    "tzdata>=2024.1",  # zoneinfo has no IANA data on Windows; harmless no-op on Linux
 ]
 
 [project.optional-dependencies]

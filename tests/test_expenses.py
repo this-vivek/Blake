@@ -37,5 +37,23 @@ def test_daily_summary_totals_and_breaks_down_by_category(reg, db):
     reg.call("expenses__log_expense", {"amount": 50, "category": "transport"}, db)
     reg.call("expenses__log_expense", {"amount": 25, "category": "food"}, db)
     out = reg.call("expenses__daily_summary", {}, db)
-    assert out["last_24h"]["total"] == 175.0
-    assert out["last_24h"]["by_category"] == {"food": 125.0, "transport": 50.0}
+    assert out["today"]["total"] == 175.0
+    assert out["today"]["by_category"] == {"food": 125.0, "transport": 50.0}
+
+
+def test_daily_summary_excludes_spend_from_previous_calendar_day(reg, db, monkeypatch):
+    import datetime
+    import zoneinfo
+
+    from app.core import clock
+
+    ist = zoneinfo.ZoneInfo("Asia/Kolkata")
+    yesterday_9pm = datetime.datetime(2024, 3, 14, 21, 0, tzinfo=ist).timestamp()
+    today_0032 = datetime.datetime(2024, 3, 15, 0, 32, tzinfo=ist).timestamp()
+
+    db.append("expenses", "expense", {"amount": 500.0, "category": "food", "note": ""},
+               ts=yesterday_9pm)
+
+    monkeypatch.setattr(clock, "now", lambda: today_0032)
+    out = reg.call("expenses__daily_summary", {}, db)
+    assert out["today"]["total"] == 0.0

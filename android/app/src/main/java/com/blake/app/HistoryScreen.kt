@@ -55,10 +55,10 @@ class HistoryViewModel : ViewModel() {
 private fun formatSummary(json: String): String {
     val obj = JSONObject(json)
     val parts = mutableListOf<String>()
-    obj.optJSONObject("meals")?.optJSONObject("last_24h")?.let {
+    obj.optJSONObject("meals")?.optJSONObject("today")?.let {
         parts.add("Meals today: ${it.optDouble("kcal", 0.0)} kcal")
     }
-    obj.optJSONObject("expenses")?.optJSONObject("last_24h")?.let {
+    obj.optJSONObject("expenses")?.optJSONObject("today")?.let {
         parts.add("Spent today: ${it.optDouble("total", 0.0)}")
     }
     obj.optJSONObject("tasks")?.optJSONArray("open_tasks")?.let {

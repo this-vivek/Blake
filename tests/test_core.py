@@ -34,7 +34,49 @@ def test_unknown_tool_is_error_not_crash(reg, db):
 def test_meal_macros_from_lookup_not_model(reg, db):
     out = reg.call("meals__log_meal", {"items": [{"name": "egg", "grams": 100}]}, db)
     assert out["total"]["kcal"] == 143.0
-    assert reg.call("meals__daily_summary", {}, db)["last_24h"]["kcal"] == 143.0
+    assert reg.call("meals__daily_summary", {}, db)["today"]["kcal"] == 143.0
+
+
+def test_daily_summary_uses_local_calendar_day_not_rolling_24h(reg, db, monkeypatch):
+    import datetime
+    import zoneinfo
+
+    from app.core import clock
+
+    ist = zoneinfo.ZoneInfo("Asia/Kolkata")
+    # A dinner logged at 21:00 IST yesterday is only ~3.5h before "now" (00:32 IST today) —
+    # well within a rolling 24h window, but it belongs to yesterday's calendar day.
+    yesterday_9pm = datetime.datetime(2024, 3, 14, 21, 0, tzinfo=ist).timestamp()
+    today_0032 = datetime.datetime(2024, 3, 15, 0, 32, tzinfo=ist).timestamp()
+
+    db.append("meals", "meal", {
+        "meal": "dinner", "items": [],
+        "total": {"kcal": 500.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0},
+    }, ts=yesterday_9pm)
+
+    monkeypatch.setattr(clock, "now", lambda: today_0032)
+    out = reg.call("meals__daily_summary", {}, db)
+    assert out["today"]["kcal"] == 0.0
+
+
+def test_daily_summary_includes_meal_logged_just_after_local_midnight(reg, db, monkeypatch):
+    import datetime
+    import zoneinfo
+
+    from app.core import clock
+
+    ist = zoneinfo.ZoneInfo("Asia/Kolkata")
+    today_0005 = datetime.datetime(2024, 3, 15, 0, 5, tzinfo=ist).timestamp()
+    today_0032 = datetime.datetime(2024, 3, 15, 0, 32, tzinfo=ist).timestamp()
+
+    db.append("meals", "meal", {
+        "meal": "snack", "items": [],
+        "total": {"kcal": 120.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0},
+    }, ts=today_0005)
+
+    monkeypatch.setattr(clock, "now", lambda: today_0032)
+    out = reg.call("meals__daily_summary", {}, db)
+    assert out["today"]["kcal"] == 120.0
 
 
 def test_unknown_food_reported(reg, db):
