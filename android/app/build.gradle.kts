@@ -72,6 +72,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     // Navigation Compose: pre-approved in ROADMAP-NEXTGEN.md for the bottom-nav shell (P1.3)
     implementation("androidx.navigation:navigation-compose:2.7.7")
+    // Coil: standard, lightweight image loader — needed to preview a picked photo (from a
+    // content:// Uri) before upload, without hand-rolling Bitmap decode/EXIF/memory handling.
+    implementation("io.coil-kt:coil-compose:2.6.0")
 
     // Screenshot testing (pre-approved in ROADMAP-NEXTGEN.md): JVM-based via Robolectric, no
     // emulator needed in CI.

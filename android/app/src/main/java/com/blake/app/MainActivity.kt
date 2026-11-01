@@ -38,6 +38,7 @@ private data class NavDestination(val route: String, val label: String, val glyp
 // the nav shell itself is confirmed stable.
 private val DESTINATIONS = listOf(
     NavDestination("today", "Today", "⌂"),
+    NavDestination("workout", "Workout", "🏋️"),
     NavDestination("timeline", "Timeline", "☰"),
     NavDestination("insights", "Insights", "ⓘ"),
 )
@@ -84,6 +85,7 @@ fun BlakeApp() {
             modifier = Modifier.padding(innerPadding),
         ) {
             composable("today") { TodayScreen() }
+            composable("workout") { WorkoutScreen() }
             composable("timeline") { TimelineScreen() }
             composable("insights") { InsightsScreen() }
             composable("settings") {

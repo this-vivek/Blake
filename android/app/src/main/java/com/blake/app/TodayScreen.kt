@@ -4,29 +4,30 @@ import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.blake.app.ui.theme.Format
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.Calendar
-
-private val MUSCLE_GROUPS = listOf(
-    "chest", "back", "legs", "shoulders", "biceps", "triceps", "core", "cardio"
-)
-private val MEAL_TYPES = listOf("breakfast", "lunch", "dinner", "snack")
 
 private fun defaultMealForHour(hour: Int): String = when (hour) {
     in 5..10 -> "breakfast"
@@ -37,11 +38,6 @@ private fun defaultMealForHour(hour: Int): String = when (hour) {
 }
 
 class TodayViewModel : ViewModel() {
-    var location by mutableStateOf<String?>(null)
-    var selectedGroups by mutableStateOf<Set<String>>(emptySet())
-    var workoutText by mutableStateOf<List<String>>(emptyList())
-    var workoutLoading by mutableStateOf(false)
-
     var mealType by mutableStateOf(
         defaultMealForHour(Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
     )
@@ -50,33 +46,6 @@ class TodayViewModel : ViewModel() {
     var mealNames by mutableStateOf<List<String>>(emptyList())
     var mealGrams by mutableStateOf<List<String>>(emptyList())
     var logResultText by mutableStateOf("")
-
-    fun toggleGroup(context: Context, group: String) {
-        selectedGroups = if (group in selectedGroups) selectedGroups - group
-        else selectedGroups + group
-        if (selectedGroups.isNotEmpty() && location != null) fetchWorkout(context)
-    }
-
-    fun setLocation(context: Context, loc: String) {
-        location = loc
-        if (selectedGroups.isNotEmpty()) fetchWorkout(context)
-    }
-
-    private fun fetchWorkout(context: Context) {
-        val loc = location ?: return
-        workoutLoading = true
-        val api = Prefs.apiFor(context)
-        viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                api.suggestWorkout(loc, selectedGroups.joinToString(","))
-            }
-            workoutLoading = false
-            workoutText = result.fold(
-                onSuccess = { json -> formatWorkout(json) },
-                onFailure = { listOf("Error: ${it.message}") }
-            )
-        }
-    }
 
     fun suggestMeal(context: Context) {
         mealLoading = true
@@ -215,21 +184,6 @@ private fun parseChatResult(json: String): Pair<String, List<Pair<String, Int>>>
     return text to ids
 }
 
-private fun formatWorkout(json: String): List<String> {
-    val groups = JSONObject(json).optJSONArray("groups") ?: return listOf("No routine found")
-    val out = mutableListOf<String>()
-    for (i in 0 until groups.length()) {
-        val g = groups.getJSONObject(i)
-        out.add("— ${g.optString("muscle_group").uppercase()} —")
-        val exercises = g.optJSONArray("exercises") ?: continue
-        for (j in 0 until exercises.length()) {
-            val e = exercises.getJSONObject(j)
-            out.add("${e.optString("exercise")}: ${e.optInt("sets")} x ${e.optString("reps")}")
-        }
-    }
-    return if (out.isEmpty()) listOf("No routine found") else out
-}
-
 @Composable
 fun TodayScreen(vm: TodayViewModel = viewModel()) {
     val context = LocalContext.current
@@ -242,35 +196,10 @@ fun TodayScreen(vm: TodayViewModel = viewModel()) {
         modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Workout", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = vm.location == "gym",
-                onClick = { vm.setLocation(context, "gym") },
-                label = { Text("Gym") }
-            )
-            FilterChip(
-                selected = vm.location == "home",
-                onClick = { vm.setLocation(context, "home") },
-                label = { Text("Home") }
-            )
-        }
-        if (vm.location != null) {
-            FlowRowChips(MUSCLE_GROUPS, vm.selectedGroups) { vm.toggleGroup(context, it) }
-        }
-        if (vm.workoutLoading) {
-            Text("Loading...")
-        } else {
-            vm.workoutText.forEach { line -> Text(line) }
-        }
-
-        Divider()
-
-        Text("Food suggestion", style = MaterialTheme.typography.titleMedium)
-        FlowRowChips(MEAL_TYPES, setOf(vm.mealType)) {
-            vm.mealType = it
-            vm.suggestMeal(context)
-        }
+        Text(
+            "${vm.mealType.replaceFirstChar { it.uppercase() }} suggestion",
+            style = MaterialTheme.typography.titleMedium
+        )
 
         if (vm.mealLoading) {
             Text("Loading...")
@@ -306,40 +235,100 @@ fun TodayScreen(vm: TodayViewModel = viewModel()) {
         Divider()
 
         Text("Log anything", style = MaterialTheme.typography.titleMedium)
-        ChatInputBar(vm)
         if (vm.chatResultText.isNotBlank()) {
             ChatResultCard(vm)
         }
+        Composer(vm)
     }
 }
 
 @Composable
-private fun ChatInputBar(vm: TodayViewModel) {
+private fun Composer(vm: TodayViewModel) {
     val context = LocalContext.current
     val pickImage = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri -> vm.chatImageUri = uri }
 
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = vm.chatInput,
-            onValueChange = { vm.chatInput = it },
-            placeholder = { Text("Log anything...") },
-            modifier = Modifier.weight(1f),
-        )
-        OutlinedButton(onClick = { pickImage.launch("image/*") }) {
-            Text(if (vm.chatImageUri == null) "📷" else "✓")
-        }
-        Button(
-            onClick = {
-                val uri = vm.chatImageUri
-                val bytes = uri?.let { context.contentResolver.openInputStream(it)?.use { s -> s.readBytes() } }
-                val mimeType = uri?.let { context.contentResolver.getType(it) }
-                vm.sendChat(context, bytes, mimeType)
-            },
-            enabled = !vm.chatLoading && (vm.chatInput.isNotBlank() || vm.chatImageUri != null),
-        ) {
-            Text(if (vm.chatLoading) "..." else "Send")
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            vm.chatImageUri?.let { uri ->
+                Box(contentAlignment = Alignment.TopEnd) {
+                    AsyncImage(
+                        model = uri,
+                        contentDescription = "Attached photo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(96.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                    )
+                    IconButton(
+                        onClick = { vm.chatImageUri = null },
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface) {
+                            Text(
+                                "✕",
+                                modifier = Modifier.padding(4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = vm.chatInput,
+                    onValueChange = { vm.chatInput = it },
+                    placeholder = { Text("Log anything...") },
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = { pickImage.launch("image/*") },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surface),
+                ) {
+                    Text("📷")
+                }
+                IconButton(
+                    onClick = {
+                        val uri = vm.chatImageUri
+                        val bytes = uri?.let {
+                            context.contentResolver.openInputStream(it)?.use { s -> s.readBytes() }
+                        }
+                        val mimeType = uri?.let { context.contentResolver.getType(it) }
+                        vm.sendChat(context, bytes, mimeType)
+                    },
+                    enabled = !vm.chatLoading && (vm.chatInput.isNotBlank() || vm.chatImageUri != null),
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (!vm.chatLoading && (vm.chatInput.isNotBlank() || vm.chatImageUri != null)) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            }
+                        ),
+                ) {
+                    if (vm.chatLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    } else {
+                        Text("➤", color = MaterialTheme.colorScheme.onPrimary)
+                    }
+                }
+            }
         }
     }
 }
@@ -365,23 +354,6 @@ private fun ChatResultCard(vm: TodayViewModel) {
                             }
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FlowRowChips(options: List<String>, selected: Set<String>, onToggle: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        options.chunked(4).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                row.forEach { option ->
-                    FilterChip(
-                        selected = option in selected,
-                        onClick = { onToggle(option) },
-                        label = { Text(option) }
-                    )
                 }
             }
         }
