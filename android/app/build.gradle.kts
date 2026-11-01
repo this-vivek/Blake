@@ -15,6 +15,19 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // A fixed keystore (committed below) instead of each machine/CI run's own
+            // ~/.android/debug.keystore — otherwise every CI-built APK gets a different
+            // signature and can't install over the last one without an uninstall first.
+            storeFile = file("ci-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+            storeType = "PKCS12"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
