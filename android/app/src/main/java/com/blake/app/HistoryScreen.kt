@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.blake.app.ui.theme.Format
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -56,10 +57,10 @@ private fun formatSummary(json: String): String {
     val obj = JSONObject(json)
     val parts = mutableListOf<String>()
     obj.optJSONObject("meals")?.optJSONObject("today")?.let {
-        parts.add("Meals today: ${it.optDouble("kcal", 0.0)} kcal")
+        parts.add("Meals today: ${Format.kcal(it.optDouble("kcal", 0.0))}")
     }
     obj.optJSONObject("expenses")?.optJSONObject("today")?.let {
-        parts.add("Spent today: ${it.optDouble("total", 0.0)}")
+        parts.add("Spent today: ${Format.currency(it.optDouble("total", 0.0))}")
     }
     obj.optJSONObject("tasks")?.optJSONArray("open_tasks")?.let {
         parts.add("Open tasks: ${it.length()}")
@@ -78,11 +79,11 @@ private fun formatEvents(json: String): List<String> {
             when (kind) {
                 "meal" -> {
                     val total = payload.optJSONObject("total")
-                    "${payload.optString("meal")}: ${total?.optDouble("kcal", 0.0)} kcal"
+                    "${payload.optString("meal")}: ${Format.kcal(total?.optDouble("kcal", 0.0) ?: 0.0)}"
                 }
-                "set" -> "${payload.optString("exercise")} ${payload.optDouble("weight_kg")}kg" +
-                    " x${payload.optInt("reps")} (e1RM ${payload.optDouble("e1rm")})"
-                "expense" -> "${payload.optString("category")}: ${payload.optDouble("amount")}" +
+                "set" -> "${payload.optString("exercise")} ${Format.weightKg(payload.optDouble("weight_kg"))}" +
+                    " x${payload.optInt("reps")} (e1RM ${Format.weightKg(payload.optDouble("e1rm"))})"
+                "expense" -> "${payload.optString("category")}: ${Format.currency(payload.optDouble("amount"))}" +
                     (payload.optString("note").takeIf { it.isNotBlank() }?.let { " — $it" } ?: "")
                 "task" -> "To-do: ${payload.optString("title")}"
                 "task_done" -> "Done: ${payload.optString("title")}"

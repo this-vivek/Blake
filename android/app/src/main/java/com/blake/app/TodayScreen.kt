@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.blake.app.ui.theme.Format
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -97,8 +98,8 @@ class TodayViewModel : ViewModel() {
                 mealGrams = grams
                 val total = obj.optJSONObject("total")
                 mealTotalText = if (total != null) {
-                    "Approx: ${total.optDouble("kcal", 0.0)} kcal, " +
-                        "${total.optDouble("protein", 0.0)}g protein"
+                    "Approx: ${Format.kcal(total.optDouble("kcal", 0.0))}, " +
+                        "${Format.grams(total.optDouble("protein", 0.0))} protein"
                 } else ""
             }
             result.onFailure {
@@ -124,7 +125,7 @@ class TodayViewModel : ViewModel() {
             logResultText = result.fold(
                 onSuccess = { json ->
                     val total = JSONObject(json).optJSONObject("total")
-                    if (total != null) "Logged! Total: ${total.optDouble("kcal", 0.0)} kcal"
+                    if (total != null) "Logged! Total: ${Format.kcal(total.optDouble("kcal", 0.0))}"
                     else "Logged, but response was unexpected: $json"
                 },
                 onFailure = { "Error: ${it.message}" }
