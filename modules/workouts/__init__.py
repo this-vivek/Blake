@@ -147,6 +147,38 @@ def suggest_routine(args: dict, db) -> dict:
     return {"location": location, "groups": found, "unknown_groups": unknown}
 
 
+def muscle_groups_for(exercise_names: set[str]) -> list[str]:
+    """Best-effort reverse lookup from logged exercise names to muscle group(s), using
+    EXERCISES as the source of truth. Exercises logged under a name that doesn't match the
+    table (e.g. a custom lift typed into chat) simply don't contribute a group — this is a
+    convenience for the /today dashboard, not something any PR/number depends on."""
+    name_to_groups: dict[str, set[str]] = {}
+    for (_location, group), exercises in EXERCISES.items():
+        for ex in exercises:
+            name_to_groups.setdefault(ex["exercise"].lower(), set()).add(group)
+    groups: set[str] = set()
+    for name in exercise_names:
+        groups.update(name_to_groups.get(name.lower(), set()))
+    return sorted(groups)
+
+
+def prs_in(sets_sorted_by_time: list[dict], since: float) -> list[dict]:
+    """Recompute which of the given (chronologically-sorted, ascending) sets were PRs at
+    the time they were logged, matching log_set's own is_pr definition exactly, and return
+    the ones at or after `since`."""
+    best_so_far: dict[str, float] = {}
+    prs = []
+    for e in sets_sorted_by_time:
+        ex, e1rm = e["payload"]["exercise"], e["payload"]["e1rm"]
+        prev_best = best_so_far.get(ex)
+        is_pr = prev_best is not None and e1rm > prev_best
+        if is_pr and e["ts"] >= since:
+            prs.append({"exercise": ex, "e1rm": e1rm})
+        if prev_best is None or e1rm > prev_best:
+            best_so_far[ex] = e1rm
+    return prs
+
+
 module = Module(
     name="workouts",
     version="0.1.0",

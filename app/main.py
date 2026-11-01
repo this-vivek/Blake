@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.core.db import Db
 from app.core.registry import Registry
 from app.core.router import run_turn
+from app.today import build_today
 
 app = FastAPI(title="Blake")
 db = Db(os.getenv("BLAKE_DB_PATH", "blake.db"))
@@ -127,3 +128,8 @@ class GoalsRequest(BaseModel):
 def put_goals(req: GoalsRequest):
     args = {k: v for k, v in req.model_dump().items() if v is not None}
     return registry.call("goals__set_goal", args, db)
+
+
+@app.get("/today", dependencies=[Depends(require_api_key)])
+def today():
+    return build_today(db, registry)
