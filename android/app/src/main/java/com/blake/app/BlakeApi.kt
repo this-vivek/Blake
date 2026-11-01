@@ -113,12 +113,14 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
         proteinG: Double? = null,
         dailySpend: Double? = null,
         workoutDaysPerWeek: Int? = null,
+        bodyweightKg: Double? = null,
     ): Result<String> {
         val body = JSONObject().apply {
             kcal?.let { put("kcal", it) }
             proteinG?.let { put("protein_g", it) }
             dailySpend?.let { put("daily_spend", it) }
             workoutDaysPerWeek?.let { put("workout_days_per_week", it) }
+            bodyweightKg?.let { put("bodyweight_kg", it) }
         }.toString()
         return try {
             val request = Request.Builder()

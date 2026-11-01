@@ -23,6 +23,7 @@ class SettingsViewModel : ViewModel() {
     var proteinGoal by mutableStateOf("")
     var spendGoal by mutableStateOf("")
     var workoutDaysGoal by mutableStateOf("")
+    var bodyweightGoal by mutableStateOf("")
     var goalsStatus by mutableStateOf("")
     var goalsLoading by mutableStateOf(false)
 
@@ -40,6 +41,9 @@ class SettingsViewModel : ViewModel() {
                 if (obj.has("workout_days_per_week")) {
                     workoutDaysGoal = obj.optInt("workout_days_per_week").toString()
                 }
+                if (obj.has("bodyweight_kg")) {
+                    bodyweightGoal = obj.optDouble("bodyweight_kg").toString()
+                }
             }
             result.onFailure { goalsStatus = "Couldn't load goals: ${it.message}" }
         }
@@ -54,6 +58,7 @@ class SettingsViewModel : ViewModel() {
                     proteinG = proteinGoal.toDoubleOrNull(),
                     dailySpend = spendGoal.toDoubleOrNull(),
                     workoutDaysPerWeek = workoutDaysGoal.toIntOrNull(),
+                    bodyweightKg = bodyweightGoal.toDoubleOrNull(),
                 )
             }
             goalsStatus = result.fold(
@@ -133,6 +138,11 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = viewModel()) {
             OutlinedTextField(
                 value = vm.workoutDaysGoal, onValueChange = { vm.workoutDaysGoal = it },
                 label = { Text("Workout days per week") }, modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = vm.bodyweightGoal, onValueChange = { vm.bodyweightGoal = it },
+                label = { Text("Bodyweight (kg) — used to estimate kcal burned") },
+                modifier = Modifier.fillMaxWidth()
             )
             Button(onClick = { vm.saveGoals(context) }, modifier = Modifier.fillMaxWidth()) {
                 Text("Save goals")
