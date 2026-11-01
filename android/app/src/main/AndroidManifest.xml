@@ -5,7 +5,7 @@
 
     <application
         android:label="Blake"
-        android:theme="@android:style/Theme.DeviceDefault.DayNight.NoActionBar"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
         android:allowBackup="true">
         <activity
             android:name=".MainActivity"
