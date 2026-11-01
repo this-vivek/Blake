@@ -1,3 +1,5 @@
+import re
+
 from app.core.module import Module, Tool
 
 # Per 100 g: kcal, protein, carbs, fat. Static dataset (approx. USDA/IFCT values) so lookups
@@ -46,6 +48,9 @@ FOODS = {
     "idli": (156, 4.0, 32.0, 0.5),
     "dosa": (168, 3.9, 28.0, 3.7),
     "chapati": (297, 9.8, 51.0, 7.5),
+    "poha": (130, 2.7, 24.0, 3.0),
+    "whey protein": (400, 80.0, 10.0, 3.3),
+    "protein powder": (400, 80.0, 10.0, 3.3),
 }
 
 # Common qualifiers Claude adds that shouldn't block a match (boiled, cooked, raw, etc.).
@@ -57,10 +62,16 @@ _NOISE_WORDS = {
 
 
 def _match(name: str) -> tuple[str, tuple] | None:
-    """Exact match first, then match any known food name as a whole word within the input."""
+    """Exact match first, then match a known food as a whole word within the input.
+
+    Parenthetical asides (e.g. "poha (rice flakes with onion, peanuts)") are stripped before
+    matching — they describe ingredients of the dish, not the dish itself, and matching on
+    them causes false positives (e.g. matching "onion" instead of the actual dish "poha").
+    """
     if name in FOODS:
         return name, FOODS[name]
-    words = {w for w in name.replace(",", " ").split() if w not in _NOISE_WORDS}
+    primary = re.sub(r"\([^)]*\)", " ", name)
+    words = {w for w in primary.replace(",", " ").split() if w not in _NOISE_WORDS}
     candidates = [k for k in FOODS if set(k.split()) <= words]
     if candidates:
         best = max(candidates, key=len)

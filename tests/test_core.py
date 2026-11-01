@@ -46,6 +46,16 @@ def test_meal_rejects_bad_input(reg, db):
     assert "error" in reg.call("meals__log_meal", {"items": []}, db)
 
 
+def test_parenthetical_ingredients_dont_cause_false_match(reg, db):
+    # "onion" appears inside the parenthetical description but the dish itself is poha,
+    # not onion — matching must not pick an ingredient mentioned in the aside.
+    out = reg.call("meals__log_meal", {"items": [
+        {"name": "poha (cooked flattened rice with turmeric, onion, peanuts)", "grams": 200}
+    ]}, db)
+    assert out["logged"][0]["name"] == "poha"
+    assert out["unknown_items"] == []
+
+
 def test_pr_detection(reg, db):
     a = reg.call("workouts__log_set", {"exercise": "Bench", "weight_kg": 60, "reps": 8}, db)
     b = reg.call("workouts__log_set", {"exercise": "bench", "weight_kg": 65, "reps": 8}, db)
