@@ -37,3 +37,22 @@ async def chat(text: str = Form(""), image: UploadFile | None = File(None)):  # 
     result = run_turn(client, db, registry, content)
     db.append("chat", "turn", {"text": text, "has_image": image is not None, **result})
     return result
+
+
+@app.get("/history", dependencies=[Depends(require_api_key)])
+def history(module: str, kind: str | None = None, limit: int = 50):
+    if module not in registry.modules:
+        return {"error": f"unknown module {module}"}
+    return {"events": db.query(module, kind=kind, limit=min(limit, 500))}
+
+
+@app.get("/summary", dependencies=[Depends(require_api_key)])
+def summary():
+    out: dict[str, dict] = {}
+    for name, mod in registry.modules.items():
+        tool_names = {t.name for t in mod.tools}
+        if "daily_summary" in tool_names:
+            out[name] = registry.call(f"{name}__daily_summary", {}, db)
+        elif "list_tasks" in tool_names:
+            out[name] = registry.call(f"{name}__list_tasks", {}, db)
+    return out

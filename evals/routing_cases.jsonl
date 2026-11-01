@@ -6,3 +6,13 @@
 {"text": "squat 100 for 5 reps", "expect": ["workouts__log_set"]}
 {"text": "deadlift 120x3 and 120x3 again", "expect": ["workouts__log_set"]}
 {"text": "2 eggs for breakfast, then bench 70x5", "expect": ["meals__log_meal", "workouts__log_set"]}
+{"text": "spent 500 on groceries", "expect": ["expenses__log_expense"]}
+{"text": "paid 1200 for electricity bill", "expect": ["expenses__log_expense"]}
+{"text": "bought a movie ticket for 350", "expect": ["expenses__log_expense"]}
+{"text": "how much have I spent today?", "expect": ["expenses__daily_summary"]}
+{"text": "uber ride cost me 180", "expect": ["expenses__log_expense"]}
+{"text": "remind me to buy milk", "expect": ["tasks__add_task"]}
+{"text": "add a task to call the dentist tomorrow", "expect": ["tasks__add_task"]}
+{"text": "I finished calling the dentist", "expect": ["tasks__complete_task"]}
+{"text": "what tasks do I still need to do?", "expect": ["tasks__list_tasks"]}
+{"text": "mark buy milk as done", "expect": ["tasks__complete_task"]}
