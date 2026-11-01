@@ -1,6 +1,9 @@
 package com.blake.app
 
 import android.content.Context
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -132,6 +135,82 @@ class TodayViewModel : ViewModel() {
             )
         }
     }
+
+    // Free-text/photo logging, docked on Today — replaces the old standalone Log tab.
+    var chatInput by mutableStateOf("")
+    var chatImageUri by mutableStateOf<Uri?>(null)
+    var chatLoading by mutableStateOf(false)
+    var chatResultText by mutableStateOf("")
+    var chatEventIds by mutableStateOf<List<Pair<String, Int>>>(emptyList())
+    var chatUndone by mutableStateOf<Set<Int>>(emptySet())
+
+    fun sendChat(context: Context, imageBytes: ByteArray?) {
+        if (chatInput.isBlank() && imageBytes == null) return
+        chatLoading = true
+        chatResultText = ""
+        chatEventIds = emptyList()
+        chatUndone = emptySet()
+        val api = Prefs.apiFor(context)
+        val text = chatInput
+        lastSentText = text
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.chat(text, imageBytes) }
+            chatLoading = false
+            result.fold(
+                onSuccess = { json ->
+                    val (summary, ids) = parseChatResult(json)
+                    chatResultText = summary
+                    chatEventIds = ids
+                    chatInput = ""
+                    chatImageUri = null
+                },
+                onFailure = { chatResultText = "Error: ${it.message}" }
+            )
+        }
+    }
+
+    var lastSentText by mutableStateOf("")
+
+    fun undoChatEvent(context: Context, eventId: Int) {
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.voidEvent(eventId) }
+            result.onSuccess { chatUndone = chatUndone + eventId }
+            result.onFailure { chatResultText = "Couldn't undo: ${it.message}" }
+        }
+    }
+
+    /** Void every event from the last reply, then put the original text back for editing. */
+    fun editChatResult(context: Context) {
+        val ids = chatEventIds.map { it.second }.filter { it !in chatUndone }
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            ids.forEach { id ->
+                val result = withContext(Dispatchers.IO) { api.voidEvent(id) }
+                result.onSuccess { chatUndone = chatUndone + id }
+            }
+            chatInput = lastSentText
+            chatResultText = ""
+            chatEventIds = emptyList()
+        }
+    }
+}
+
+private fun parseChatResult(json: String): Pair<String, List<Pair<String, Int>>> {
+    val obj = JSONObject(json)
+    val text = obj.optString("text")
+    val calls = obj.optJSONArray("calls")
+    val ids = mutableListOf<Pair<String, Int>>()
+    if (calls != null) {
+        for (i in 0 until calls.length()) {
+            val call = calls.getJSONObject(i)
+            val output = call.optJSONObject("output") ?: continue
+            if (output.has("event_id")) {
+                ids.add(call.optString("name") to output.optInt("event_id"))
+            }
+        }
+    }
+    return text to ids
 }
 
 private fun formatWorkout(json: String): List<String> {
@@ -219,6 +298,72 @@ fun TodayScreen(vm: TodayViewModel = viewModel()) {
             }
             if (vm.logResultText.isNotBlank()) {
                 Text(vm.logResultText)
+            }
+        }
+
+        Divider()
+
+        Text("Log anything", style = MaterialTheme.typography.titleMedium)
+        ChatInputBar(vm)
+        if (vm.chatResultText.isNotBlank()) {
+            ChatResultCard(vm)
+        }
+    }
+}
+
+@Composable
+private fun ChatInputBar(vm: TodayViewModel) {
+    val context = LocalContext.current
+    val pickImage = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri -> vm.chatImageUri = uri }
+
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = vm.chatInput,
+            onValueChange = { vm.chatInput = it },
+            placeholder = { Text("Log anything...") },
+            modifier = Modifier.weight(1f),
+        )
+        OutlinedButton(onClick = { pickImage.launch("image/*") }) {
+            Text(if (vm.chatImageUri == null) "📷" else "✓")
+        }
+        Button(
+            onClick = {
+                val bytes = vm.chatImageUri?.let { uri ->
+                    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                }
+                vm.sendChat(context, bytes)
+            },
+            enabled = !vm.chatLoading && (vm.chatInput.isNotBlank() || vm.chatImageUri != null),
+        ) {
+            Text(if (vm.chatLoading) "..." else "Send")
+        }
+    }
+}
+
+@Composable
+private fun ChatResultCard(vm: TodayViewModel) {
+    val context = LocalContext.current
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(vm.chatResultText)
+            if (vm.chatEventIds.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val allUndone = vm.chatEventIds.all { it.second in vm.chatUndone }
+                    if (allUndone) {
+                        Text("Undone", style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        TextButton(onClick = { vm.editChatResult(context) }) { Text("Edit") }
+                        vm.chatEventIds.forEach { (_, eventId) ->
+                            if (eventId !in vm.chatUndone) {
+                                TextButton(onClick = { vm.undoChatEvent(context, eventId) }) {
+                                    Text("Undo")
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
