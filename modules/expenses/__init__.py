@@ -16,8 +16,8 @@ def log_expense(args: dict, db) -> dict:
         category = "other"
     note = str(args.get("note", "")).strip()
     entry = {"amount": round(amount, 2), "category": category, "note": note}
-    db.append("expenses", "expense", entry)
-    return {"logged": entry}
+    event_id = db.append("expenses", "expense", entry)
+    return {"logged": entry, "event_id": event_id}
 
 
 def daily_summary(args: dict, db) -> dict:

@@ -118,16 +118,18 @@ def log_set(args: dict, db) -> dict:
             p = existing["payload"]
             return {"logged": {"exercise": p["exercise"], "weight_kg": p["weight_kg"],
                                 "reps": p["reps"]}, "e1rm": p["e1rm"],
-                    "is_pr": False, "first_time": False, "duplicate": True}
+                    "is_pr": False, "first_time": False, "duplicate": True,
+                    "event_id": existing["id"]}
 
     e1rm = round(w * (1 + reps / 30), 1)  # Epley
     prev = [x["payload"]["e1rm"] for x in db.query_active("workouts", "set")
             if x["payload"]["exercise"] == ex]
     is_pr = bool(prev) and e1rm > max(prev)
-    db.append("workouts", "set", {"exercise": ex, "weight_kg": w, "reps": reps, "e1rm": e1rm},
-              client_id=client_id)
+    event_id = db.append(
+        "workouts", "set", {"exercise": ex, "weight_kg": w, "reps": reps, "e1rm": e1rm},
+        client_id=client_id)
     return {"logged": {"exercise": ex, "weight_kg": w, "reps": reps},
-            "e1rm": e1rm, "is_pr": is_pr, "first_time": not prev}
+            "e1rm": e1rm, "is_pr": is_pr, "first_time": not prev, "event_id": event_id}
 
 
 def suggest_routine(args: dict, db) -> dict:

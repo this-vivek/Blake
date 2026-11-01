@@ -168,7 +168,7 @@ def log_meal(args: dict, db) -> dict:
         existing = db.find_by_client_id(client_id)
         if existing:  # retried request that already landed — return the original, don't redo it
             return {"logged": existing["payload"]["items"], "total": existing["payload"]["total"],
-                    "unknown_items": [], "duplicate": True}
+                    "unknown_items": [], "duplicate": True, "event_id": existing["id"]}
 
     items, unknown = [], []
     total = {"kcal": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
@@ -187,10 +187,12 @@ def log_meal(args: dict, db) -> dict:
         for k in total:
             total[k] += m[k]
     total = {k: round(v, 1) for k, v in total.items()}
+    result = {"logged": items, "total": total, "unknown_items": unknown}
     if items:
-        db.append("meals", "meal", {"meal": args.get("meal", "unspecified"),
-                                    "items": items, "total": total}, client_id=client_id)
-    return {"logged": items, "total": total, "unknown_items": unknown}
+        result["event_id"] = db.append(
+            "meals", "meal", {"meal": args.get("meal", "unspecified"),
+                               "items": items, "total": total}, client_id=client_id)
+    return result
 
 
 def daily_summary(args: dict, db) -> dict:
