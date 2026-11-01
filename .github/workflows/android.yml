@@ -32,3 +32,13 @@ jobs:
         with:
           name: blake-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Record screenshots (light + dark, every screen)
+        run: gradle testDebugUnitTest -Proborazzi.test.record=true --no-daemon
+        continue-on-error: true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blake-screenshots
+          path: android/app/build/outputs/roborazzi/
+          if-no-files-found: warn

@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("io.github.takahirom.roborazzi")
 }
 
 android {
@@ -50,6 +51,12 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 dependencies {
@@ -65,4 +72,14 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     // Navigation Compose: pre-approved in ROADMAP-NEXTGEN.md for the bottom-nav shell (P1.3)
     implementation("androidx.navigation:navigation-compose:2.7.7")
+
+    // Screenshot testing (pre-approved in ROADMAP-NEXTGEN.md): JVM-based via Robolectric, no
+    // emulator needed in CI.
+    testImplementation(platform("androidx.compose:compose-bom:2024.06.00"))
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.26.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.26.0")
+    testImplementation("androidx.test.ext:junit:1.1.5")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
