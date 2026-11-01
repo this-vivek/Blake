@@ -47,6 +47,8 @@ class TodayViewModel : ViewModel() {
     var mealGrams by mutableStateOf<List<String>>(emptyList())
     var logResultText by mutableStateOf("")
 
+    var mealRefreshing by mutableStateOf(false)
+
     fun suggestMeal(context: Context) {
         mealLoading = true
         logResultText = ""
@@ -54,30 +56,47 @@ class TodayViewModel : ViewModel() {
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) { api.suggestMeal(mealType) }
             mealLoading = false
-            result.onSuccess { json ->
-                val obj = JSONObject(json)
-                val itemsArr = obj.optJSONArray("items")
-                val names = mutableListOf<String>()
-                val grams = mutableListOf<String>()
-                if (itemsArr != null) {
-                    for (i in 0 until itemsArr.length()) {
-                        val it = itemsArr.getJSONObject(i)
-                        names.add(it.optString("name"))
-                        grams.add(it.optInt("grams").toString())
-                    }
+            applyMealResult(result)
+        }
+    }
+
+    /** LLM-backed refresh for variety — see app/meal_refresh.py. Falls back to the plain
+     * deterministic suggestion server-side if the LLM call fails, so this never errors out. */
+    fun refreshMeal(context: Context) {
+        mealRefreshing = true
+        logResultText = ""
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.suggestMealRefresh(mealType) }
+            mealRefreshing = false
+            applyMealResult(result)
+        }
+    }
+
+    private fun applyMealResult(result: Result<String>) {
+        result.onSuccess { json ->
+            val obj = JSONObject(json)
+            val itemsArr = obj.optJSONArray("items")
+            val names = mutableListOf<String>()
+            val grams = mutableListOf<String>()
+            if (itemsArr != null) {
+                for (i in 0 until itemsArr.length()) {
+                    val it = itemsArr.getJSONObject(i)
+                    names.add(it.optString("name"))
+                    grams.add(it.optInt("grams").toString())
                 }
-                mealNames = names
-                mealGrams = grams
-                val total = obj.optJSONObject("total")
-                mealTotalText = if (total != null) {
-                    "Approx: ${Format.kcal(total.optDouble("kcal", 0.0))}, " +
-                        "${Format.grams(total.optDouble("protein", 0.0))} protein"
-                } else ""
             }
-            result.onFailure {
-                mealNames = emptyList()
-                mealTotalText = "Error: ${it.message}"
-            }
+            mealNames = names
+            mealGrams = grams
+            val total = obj.optJSONObject("total")
+            mealTotalText = if (total != null) {
+                "Approx: ${Format.kcal(total.optDouble("kcal", 0.0))}, " +
+                    "${Format.grams(total.optDouble("protein", 0.0))} protein"
+            } else ""
+        }
+        result.onFailure {
+            mealNames = emptyList()
+            mealTotalText = "Error: ${it.message}"
         }
     }
 
@@ -196,10 +215,19 @@ fun TodayScreen(vm: TodayViewModel = viewModel()) {
         modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(
-            "${vm.mealType.replaceFirstChar { it.uppercase() }} suggestion",
-            style = MaterialTheme.typography.titleMedium
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "${vm.mealType.replaceFirstChar { it.uppercase() }} suggestion",
+                style = MaterialTheme.typography.titleMedium
+            )
+            TextButton(onClick = { vm.refreshMeal(context) }, enabled = !vm.mealRefreshing) {
+                Text(if (vm.mealRefreshing) "Refreshing..." else "🔄 Refresh")
+            }
+        }
 
         if (vm.mealLoading) {
             Text("Loading...")

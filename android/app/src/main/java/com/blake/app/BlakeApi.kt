@@ -59,6 +59,9 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
     fun suggestMeal(meal: String): Result<String> =
         get("$baseUrl/suggest/meal?meal=${enc(meal)}")
 
+    fun suggestMealRefresh(meal: String): Result<String> =
+        get("$baseUrl/suggest/meal/refresh?meal=${enc(meal)}")
+
     fun logMeal(meal: String, items: List<Pair<String, Double>>): Result<String> {
         val itemsJson = JSONArray()
         items.forEach { (name, grams) ->
