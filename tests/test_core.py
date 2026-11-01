@@ -166,3 +166,19 @@ def test_router_loop_executes_tools(reg, db):
     assert res["text"] == "Logged."
     assert res["calls"][0]["name"] == "workouts__log_set"
     assert db.query("workouts", "set")
+
+
+def test_run_turn_never_returns_raw_message_content(reg, db):
+    # app/main.py persists {"text": ..., "has_image": ..., **run_turn(...)} as the "chat"/
+    # "turn" event — run_turn's return value must never carry the raw content blocks (which
+    # is where a base64-encoded photo would live), or a photo log would blow through Neon's
+    # free storage tier. Only "text" and "calls" (tool name/input/output) may appear.
+    fake_image_data = "a" * 2000  # stand-in for what a base64 JPEG looks like
+    content = [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                      "data": fake_image_data}},
+        {"type": "text", "text": "ate 2 eggs"},
+    ]
+    res = run_turn(FakeClient(), db, reg, content)
+    assert set(res.keys()) <= {"text", "calls"}
+    assert fake_image_data not in str(res)
