@@ -34,4 +34,6 @@ async def chat(text: str = Form(""), image: UploadFile | None = File(None)):  # 
         content.append({"type": "image", "source": {
             "type": "base64", "media_type": image.content_type or "image/jpeg", "data": data}})
     content.append({"type": "text", "text": text or "Log this."})
-    return run_turn(client, db, registry, content)
+    result = run_turn(client, db, registry, content)
+    db.append("chat", "turn", {"text": text, "has_image": image is not None, **result})
+    return result
