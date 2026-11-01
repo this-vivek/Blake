@@ -5,7 +5,10 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.IOException
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 /** Talks to the Blake backend's /chat endpoint. Server may need ~30s to cold-start on free hosting. */
@@ -47,6 +50,36 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
 
     fun history(module: String, limit: Int = 20): Result<String> =
         get("$baseUrl/history?module=$module&limit=$limit")
+
+    fun suggestWorkout(location: String, muscleGroup: String): Result<String> =
+        get("$baseUrl/suggest/workout?location=${enc(location)}&muscle_group=${enc(muscleGroup)}")
+
+    fun suggestMeal(meal: String): Result<String> =
+        get("$baseUrl/suggest/meal?meal=${enc(meal)}")
+
+    fun logMeal(meal: String, items: List<Pair<String, Double>>): Result<String> {
+        val itemsJson = JSONArray()
+        items.forEach { (name, grams) ->
+            itemsJson.put(JSONObject().put("name", name).put("grams", grams))
+        }
+        val body = JSONObject().put("meal", meal).put("items", itemsJson).toString()
+        return try {
+            val request = Request.Builder()
+                .url("$baseUrl/log/meal")
+                .header("X-API-Key", apiKey)
+                .post(body.toRequestBody("application/json".toMediaType()))
+                .build()
+            client.newCall(request).execute().use { resp ->
+                val respBody = resp.body?.string().orEmpty()
+                if (resp.isSuccessful) Result.success(respBody)
+                else Result.failure(IOException("HTTP ${resp.code}: $respBody"))
+            }
+        } catch (e: IOException) {
+            Result.failure(e)
+        }
+    }
+
+    private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
     private fun get(url: String): Result<String> {
         return try {

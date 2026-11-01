@@ -59,11 +59,16 @@ fun BlakeApp() {
     var tab by remember { mutableStateOf(0) }
     Column(modifier = Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = tab, modifier = Modifier.fillMaxWidth()) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Log") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("History") })
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Today") })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Log") })
+            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("History") })
         }
         Box(modifier = Modifier.weight(1f)) {
-            if (tab == 0) ChatScreen() else HistoryScreen()
+            when (tab) {
+                0 -> TodayScreen()
+                1 -> ChatScreen()
+                else -> HistoryScreen()
+            }
         }
     }
 }
