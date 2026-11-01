@@ -37,6 +37,16 @@ def test_meal_macros_from_lookup_not_model(reg, db):
     assert reg.call("meals__daily_summary", {}, db)["today"]["kcal"] == 143.0
 
 
+def test_log_meal_retry_with_same_client_id_does_not_double_log(reg, db):
+    args = {"items": [{"name": "egg", "grams": 100}], "client_id": "retry-1"}
+    first = reg.call("meals__log_meal", args, db)
+    second = reg.call("meals__log_meal", args, db)
+    assert first["total"]["kcal"] == 143.0
+    assert second["total"]["kcal"] == 143.0
+    assert second.get("duplicate") is True
+    assert reg.call("meals__daily_summary", {}, db)["today"]["kcal"] == 143.0  # not 286.0
+
+
 def test_voided_meal_excluded_from_daily_summary(reg, db):
     reg.call("meals__log_meal", {"items": [{"name": "egg", "grams": 100}]}, db)
     meal_id = db.query("meals", "meal")[0]["id"]

@@ -49,3 +49,23 @@ def test_get_returns_event_by_id_regardless_of_module(db):
 
 def test_get_returns_none_for_unknown_id(db):
     assert db.get(123456) is None
+
+
+def test_append_with_client_id_is_idempotent(db):
+    first_id = db.append("expenses", "expense", {"amount": 10.0}, client_id="abc-123")
+    second_id = db.append("expenses", "expense", {"amount": 10.0}, client_id="abc-123")
+    assert first_id == second_id
+    assert len(db.query("expenses", "expense")) == 1
+
+
+def test_append_without_client_id_is_not_deduplicated(db):
+    db.append("expenses", "expense", {"amount": 10.0})
+    db.append("expenses", "expense", {"amount": 10.0})
+    assert len(db.query("expenses", "expense")) == 2
+
+
+def test_find_by_client_id(db):
+    event_id = db.append("expenses", "expense", {"amount": 5.0}, client_id="xyz")
+    found = db.find_by_client_id("xyz")
+    assert found["id"] == event_id
+    assert db.find_by_client_id("missing") is None

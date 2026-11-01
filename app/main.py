@@ -79,11 +79,13 @@ class LogMealItem(BaseModel):
 class LogMealRequest(BaseModel):
     meal: str
     items: list[LogMealItem]
+    client_id: str | None = None  # retry-safe: a duplicate client_id returns the original
 
 
 @app.post("/log/meal", dependencies=[Depends(require_api_key)])
 def log_meal_direct(req: LogMealRequest):
-    args = {"meal": req.meal, "items": [i.model_dump() for i in req.items]}
+    args = {"meal": req.meal, "items": [i.model_dump() for i in req.items],
+             "client_id": req.client_id}
     return registry.call("meals__log_meal", args, db)
 
 

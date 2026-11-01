@@ -27,6 +27,12 @@ class Db:
                         )"""
                     )
                     cur.execute("CREATE INDEX IF NOT EXISTS ix_events ON events(module, kind, ts)")
+                    # additive migration: lets a client retry a POST /log/* safely
+                    cur.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS client_id TEXT")
+                    cur.execute(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS ix_events_client_id "
+                        "ON events(client_id) WHERE client_id IS NOT NULL"
+                    )
             finally:
                 conn.close()
         else:
@@ -44,6 +50,16 @@ class Db:
                 )"""
             )
             self.conn.execute("CREATE INDEX IF NOT EXISTS ix_events ON events(module, kind, ts)")
+            try:
+                # SQLite's ALTER TABLE has no "IF NOT EXISTS" for ADD COLUMN (unlike Postgres)
+                self.conn.execute("ALTER TABLE events ADD COLUMN client_id TEXT")
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e):
+                    raise
+            self.conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_events_client_id "
+                "ON events(client_id) WHERE client_id IS NOT NULL"
+            )
             self.conn.commit()
 
     def _pg_connect(self):
@@ -55,11 +71,19 @@ class Db:
         conn.autocommit = True
         return conn
 
-    def append(self, module: str, kind: str, payload: dict, ts: float | None = None) -> int:
+    def append(self, module: str, kind: str, payload: dict, ts: float | None = None,
+               client_id: str | None = None) -> int:
+        """client_id makes this idempotent: a retry with the same client_id returns the
+        original event's id instead of inserting a duplicate (e.g. a mobile client retrying
+        a POST /log/* after a timeout, without knowing whether the first attempt landed)."""
+        if client_id:
+            existing = self.find_by_client_id(client_id)
+            if existing:
+                return existing["id"]
         ts = ts if ts is not None else time.time()
-        sql = (f"INSERT INTO events(module, kind, ts, payload) "
-               f"VALUES ({self._ph},{self._ph},{self._ph},{self._ph})")
-        args = (module, kind, ts, json.dumps(payload))
+        sql = (f"INSERT INTO events(module, kind, ts, payload, client_id) "
+               f"VALUES ({self._ph},{self._ph},{self._ph},{self._ph},{self._ph})")
+        args = (module, kind, ts, json.dumps(payload), client_id)
         if self.backend == "postgres":
             conn = self._pg_connect()
             try:
@@ -71,6 +95,11 @@ class Db:
         cur = self.conn.execute(sql, args)
         self.conn.commit()
         return cur.lastrowid
+
+    def find_by_client_id(self, client_id: str) -> dict | None:
+        sql = f"SELECT id, module, kind, ts, payload FROM events WHERE client_id={self._ph}"
+        rows = self._fetchall(sql, [client_id])
+        return rows[0] if rows else None
 
     def _fetchall(self, sql: str, args: list) -> list[dict]:
         if self.backend == "postgres":

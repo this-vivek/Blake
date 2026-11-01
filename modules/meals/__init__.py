@@ -162,6 +162,14 @@ def log_meal(args: dict, db) -> dict:
     items_in = args.get("items")
     if not isinstance(items_in, list) or not items_in:
         return {"error": "items must be a non-empty list"}
+
+    client_id = args.get("client_id")
+    if client_id:
+        existing = db.find_by_client_id(client_id)
+        if existing:  # retried request that already landed — return the original, don't redo it
+            return {"logged": existing["payload"]["items"], "total": existing["payload"]["total"],
+                    "unknown_items": [], "duplicate": True}
+
     items, unknown = [], []
     total = {"kcal": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
     for it in items_in:
@@ -181,7 +189,7 @@ def log_meal(args: dict, db) -> dict:
     total = {k: round(v, 1) for k, v in total.items()}
     if items:
         db.append("meals", "meal", {"meal": args.get("meal", "unspecified"),
-                                    "items": items, "total": total})
+                                    "items": items, "total": total}, client_id=client_id)
     return {"logged": items, "total": total, "unknown_items": unknown}
 
 
