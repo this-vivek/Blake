@@ -3,6 +3,7 @@ import os
 
 import anthropic
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from pydantic import BaseModel
 
 from app.core.db import Db
 from app.core.registry import Registry
@@ -56,3 +57,31 @@ def summary():
         elif "list_tasks" in tool_names:
             out[name] = registry.call(f"{name}__list_tasks", {}, db)
     return out
+
+
+@app.get("/suggest/workout", dependencies=[Depends(require_api_key)])
+def suggest_workout(location: str, muscle_group: str):
+    return registry.call(
+        "workouts__suggest_routine", {"location": location, "muscle_group": muscle_group}, db
+    )
+
+
+@app.get("/suggest/meal", dependencies=[Depends(require_api_key)])
+def suggest_meal(meal: str):
+    return registry.call("meals__suggest_meal", {"meal": meal}, db)
+
+
+class LogMealItem(BaseModel):
+    name: str
+    grams: float
+
+
+class LogMealRequest(BaseModel):
+    meal: str
+    items: list[LogMealItem]
+
+
+@app.post("/log/meal", dependencies=[Depends(require_api_key)])
+def log_meal_direct(req: LogMealRequest):
+    args = {"meal": req.meal, "items": [i.model_dump() for i in req.items]}
+    return registry.call("meals__log_meal", args, db)

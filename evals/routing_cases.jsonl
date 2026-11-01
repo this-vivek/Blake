@@ -16,3 +16,7 @@
 {"text": "I finished calling the dentist", "expect": ["tasks__complete_task"]}
 {"text": "what tasks do I still need to do?", "expect": ["tasks__list_tasks"]}
 {"text": "mark buy milk as done", "expect": ["tasks__complete_task"]}
+{"text": "suggest a chest workout at the gym", "expect": ["workouts__suggest_routine"]}
+{"text": "what should I do for biceps at home today?", "expect": ["workouts__suggest_routine"]}
+{"text": "what should I eat for lunch?", "expect": ["meals__suggest_meal"]}
+{"text": "suggest a breakfast that's not something I just had", "expect": ["meals__suggest_meal"]}

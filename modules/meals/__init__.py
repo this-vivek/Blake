@@ -1,4 +1,5 @@
 import re
+import time
 
 from app.core.module import Module, Tool
 
@@ -184,13 +185,85 @@ def log_meal(args: dict, db) -> dict:
 
 
 def daily_summary(args: dict, db) -> dict:
-    import time
     since = time.time() - 24 * 3600
     tot = {"kcal": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
     for e in db.query("meals", "meal", since=since):
         for k in tot:
             tot[k] += e["payload"]["total"][k]
     return {"last_24h": {k: round(v, 1) for k, v in tot.items()}}
+
+
+# Curated combos per meal type, built from FOODS entries so macros stay real.
+MEAL_SUGGESTIONS: dict[str, list[list[str]]] = {
+    "breakfast": [
+        ["poha", "egg"],
+        ["oats", "banana", "milk"],
+        ["idli", "sambar"],
+        ["dosa", "sambar"],
+        ["paratha", "curd"],
+    ],
+    "lunch": [
+        ["rice", "dal", "roti"],
+        ["rajma", "rice", "curd"],
+        ["chole", "naan", "curd"],
+        ["chicken breast", "rice", "spinach"],
+        ["khichdi", "curd"],
+    ],
+    "dinner": [
+        ["roti", "dal", "tomato"],
+        ["khichdi", "curd"],
+        ["paneer", "roti", "cucumber"],
+        ["rice", "fish", "spinach"],
+        ["quinoa", "chickpea", "tomato"],
+    ],
+    "snack": [
+        ["banana", "peanut butter"],
+        ["almonds", "apple"],
+        ["yogurt", "mango"],
+        ["protein powder", "milk"],
+        ["cucumber", "carrot"],
+    ],
+}
+
+EXCLUDE_DAYS = 2  # don't re-suggest anything eaten within this many days
+
+DEFAULT_GRAMS = {
+    "egg": 100, "poha": 200, "oats": 50, "banana": 120, "milk": 200, "idli": 120,
+    "sambar": 150, "dosa": 100, "rice": 150, "dal": 150, "roti": 80, "rajma": 180,
+    "curd": 100, "chole": 200, "naan": 90, "chicken breast": 150, "spinach": 100,
+    "khichdi": 250, "paneer": 100, "cucumber": 100, "fish": 150, "quinoa": 150,
+    "chickpea": 150, "tomato": 80, "peanut butter": 20, "almonds": 30, "apple": 150,
+    "yogurt": 150, "mango": 150, "protein powder": 30, "carrot": 80,
+}
+
+
+def suggest_meal(args: dict, db) -> dict:
+    meal = str(args.get("meal", "")).strip().lower()
+    combos = MEAL_SUGGESTIONS.get(meal)
+    if not combos:
+        return {"error": f"meal must be one of {list(MEAL_SUGGESTIONS)}"}
+
+    since = time.time() - EXCLUDE_DAYS * 24 * 3600
+    recent_names = {
+        item["name"] for e in db.query("meals", "meal", since=since)
+        for item in e["payload"]["items"]
+    }
+    fresh = [c for c in combos if not (set(c) & recent_names)]
+    pool = fresh or combos  # if everything's been eaten recently, suggest anyway
+
+    day_index = int(time.time() // 86400)
+    combo = pool[day_index % len(pool)]
+
+    items = []
+    total = {"kcal": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
+    for name in combo:
+        grams = DEFAULT_GRAMS.get(name, 100)
+        per100 = FOODS[name]
+        m = dict(zip(("kcal", "protein", "carbs", "fat"), (v * grams / 100 for v in per100)))
+        items.append({"name": name, "grams": grams, **{k: round(v, 1) for k, v in m.items()}})
+        for k in total:
+            total[k] += m[k]
+    return {"meal": meal, "items": items, "total": {k: round(v, 1) for k, v in total.items()}}
 
 
 module = Module(
@@ -214,5 +287,12 @@ module = Module(
         ),
         Tool("daily_summary", "Macro totals for the last 24 hours.",
              {"type": "object", "properties": {}}, daily_summary),
+        Tool(
+            "suggest_meal",
+            "Suggest a meal combo for a meal type, avoiding anything eaten recently.",
+            {"type": "object", "required": ["meal"], "properties": {
+                "meal": {"type": "string", "enum": ["breakfast", "lunch", "dinner", "snack"]}}},
+            suggest_meal,
+        ),
     ],
 )
