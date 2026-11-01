@@ -92,3 +92,21 @@ def log_meal_direct(req: LogMealRequest):
 @app.post("/events/{event_id}/void", dependencies=[Depends(require_api_key)])
 def void_event(event_id: int):
     return registry.call("events__void_event", {"event_id": event_id}, db)
+
+
+@app.get("/goals", dependencies=[Depends(require_api_key)])
+def get_goals():
+    return registry.call("goals__get_goals", {}, db)
+
+
+class GoalsRequest(BaseModel):
+    kcal: float | None = None
+    protein_g: float | None = None
+    daily_spend: float | None = None
+    workout_days_per_week: int | None = None
+
+
+@app.put("/goals", dependencies=[Depends(require_api_key)])
+def put_goals(req: GoalsRequest):
+    args = {k: v for k, v in req.model_dump().items() if v is not None}
+    return registry.call("goals__set_goal", args, db)
