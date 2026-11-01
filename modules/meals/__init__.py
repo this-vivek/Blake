@@ -188,7 +188,7 @@ def log_meal(args: dict, db) -> dict:
 def daily_summary(args: dict, db) -> dict:
     since = clock.day_start()
     tot = {"kcal": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
-    for e in db.query("meals", "meal", since=since):
+    for e in db.query_active("meals", "meal", since=since):
         for k in tot:
             tot[k] += e["payload"]["total"][k]
     return {"today": {k: round(v, 1) for k, v in tot.items()}}
@@ -246,7 +246,7 @@ def suggest_meal(args: dict, db) -> dict:
 
     since = time.time() - EXCLUDE_DAYS * 24 * 3600
     recent_names = {
-        item["name"] for e in db.query("meals", "meal", since=since)
+        item["name"] for e in db.query_active("meals", "meal", since=since)
         for item in e["payload"]["items"]
     }
     fresh = [c for c in combos if not (set(c) & recent_names)]

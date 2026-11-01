@@ -111,7 +111,7 @@ def log_set(args: dict, db) -> dict:
     if w < 0 or reps <= 0:
         return {"error": "invalid weight or reps"}
     e1rm = round(w * (1 + reps / 30), 1)  # Epley
-    prev = [x["payload"]["e1rm"] for x in db.query("workouts", "set")
+    prev = [x["payload"]["e1rm"] for x in db.query_active("workouts", "set")
             if x["payload"]["exercise"] == ex]
     is_pr = bool(prev) and e1rm > max(prev)
     db.append("workouts", "set", {"exercise": ex, "weight_kg": w, "reps": reps, "e1rm": e1rm})

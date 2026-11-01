@@ -72,19 +72,7 @@ class Db:
         self.conn.commit()
         return cur.lastrowid
 
-    def query(self, module: str, kind: str | None = None, since: float | None = None,
-              limit: int = 1000) -> list[dict]:
-        sql = f"SELECT id, module, kind, ts, payload FROM events WHERE module={self._ph}"
-        args: list = [module]
-        if kind:
-            sql += f" AND kind={self._ph}"
-            args.append(kind)
-        if since is not None:
-            sql += f" AND ts>={self._ph}"
-            args.append(since)
-        sql += f" ORDER BY ts DESC LIMIT {self._ph}"
-        args.append(limit)
-
+    def _fetchall(self, sql: str, args: list) -> list[dict]:
         if self.backend == "postgres":
             conn = self._pg_connect()
             try:
@@ -97,3 +85,34 @@ class Db:
         else:
             rows = [dict(r) for r in self.conn.execute(sql, args)]
         return [{**r, "payload": json.loads(r["payload"])} for r in rows]
+
+    def query(self, module: str, kind: str | None = None, since: float | None = None,
+              limit: int = 1000) -> list[dict]:
+        sql = f"SELECT id, module, kind, ts, payload FROM events WHERE module={self._ph}"
+        args: list = [module]
+        if kind:
+            sql += f" AND kind={self._ph}"
+            args.append(kind)
+        if since is not None:
+            sql += f" AND ts>={self._ph}"
+            args.append(since)
+        sql += f" ORDER BY ts DESC LIMIT {self._ph}"
+        args.append(limit)
+        return self._fetchall(sql, args)
+
+    def get(self, event_id: int) -> dict | None:
+        """Fetch a single event by id, regardless of module."""
+        sql = f"SELECT id, module, kind, ts, payload FROM events WHERE id={self._ph}"
+        rows = self._fetchall(sql, [event_id])
+        return rows[0] if rows else None
+
+    def query_active(self, module: str, kind: str | None = None, since: float | None = None,
+                      limit: int = 1000) -> list[dict]:
+        """Like query(), but excludes events a `void` event has targeted.
+
+        Every aggregation (daily summaries, PR detection, recency checks, etc.) should read
+        through this instead of query() directly, so corrections actually take effect.
+        """
+        voided_ids = {e["payload"]["target_id"] for e in self.query(module, "void", limit=10**6)}
+        return [r for r in self.query(module, kind=kind, since=since, limit=limit)
+                if r["id"] not in voided_ids]

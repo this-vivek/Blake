@@ -85,3 +85,8 @@ class LogMealRequest(BaseModel):
 def log_meal_direct(req: LogMealRequest):
     args = {"meal": req.meal, "items": [i.model_dump() for i in req.items]}
     return registry.call("meals__log_meal", args, db)
+
+
+@app.post("/events/{event_id}/void", dependencies=[Depends(require_api_key)])
+def void_event(event_id: int):
+    return registry.call("events__void_event", {"event_id": event_id}, db)

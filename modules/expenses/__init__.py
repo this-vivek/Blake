@@ -24,7 +24,7 @@ def daily_summary(args: dict, db) -> dict:
     since = clock.day_start()
     total = 0.0
     by_category: dict[str, float] = {}
-    for e in db.query("expenses", "expense", since=since):
+    for e in db.query_active("expenses", "expense", since=since):
         amt = e["payload"]["amount"]
         cat = e["payload"]["category"]
         total += amt

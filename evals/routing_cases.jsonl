@@ -20,3 +20,6 @@
 {"text": "what should I do for biceps at home today?", "expect": ["workouts__suggest_routine"]}
 {"text": "what should I eat for lunch?", "expect": ["meals__suggest_meal"]}
 {"text": "suggest a breakfast that's not something I just had", "expect": ["meals__suggest_meal"]}
+{"text": "undo event 42, that was a mistake", "expect": ["events__void_event"]}
+{"text": "delete log entry 17, I didn't actually eat that", "expect": ["events__void_event"]}
+{"text": "void entry id 5", "expect": ["events__void_event"]}

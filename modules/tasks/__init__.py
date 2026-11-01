@@ -2,8 +2,9 @@ from app.core.module import Module, Tool
 
 
 def _open_tasks(db) -> list[dict]:
-    tasks = db.query("tasks", "task", limit=1000)
-    done_ids = {e["payload"]["task_id"] for e in db.query("tasks", "task_done", limit=1000)}
+    tasks = db.query_active("tasks", "task", limit=1000)
+    done_ids = {e["payload"]["task_id"]
+                for e in db.query_active("tasks", "task_done", limit=1000)}
     return [
         {"id": e["id"], "title": e["payload"]["title"], "due": e["payload"].get("due")}
         for e in tasks if e["id"] not in done_ids

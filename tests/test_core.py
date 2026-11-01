@@ -37,6 +37,13 @@ def test_meal_macros_from_lookup_not_model(reg, db):
     assert reg.call("meals__daily_summary", {}, db)["today"]["kcal"] == 143.0
 
 
+def test_voided_meal_excluded_from_daily_summary(reg, db):
+    reg.call("meals__log_meal", {"items": [{"name": "egg", "grams": 100}]}, db)
+    meal_id = db.query("meals", "meal")[0]["id"]
+    reg.call("events__void_event", {"event_id": meal_id}, db)
+    assert reg.call("meals__daily_summary", {}, db)["today"]["kcal"] == 0.0
+
+
 def test_daily_summary_uses_local_calendar_day_not_rolling_24h(reg, db, monkeypatch):
     import datetime
     import zoneinfo
@@ -110,6 +117,15 @@ def test_pr_detection(reg, db):
     c = reg.call("workouts__log_set", {"exercise": "bench", "weight_kg": 50, "reps": 8}, db)
     assert a["first_time"] and not a["is_pr"]
     assert b["is_pr"] and not c["is_pr"]
+
+
+def test_voided_set_excluded_from_pr_detection(reg, db):
+    reg.call("workouts__log_set", {"exercise": "bench", "weight_kg": 65, "reps": 8}, db)
+    pr_set_id = db.query("workouts", "set")[0]["id"]
+    reg.call("events__void_event", {"event_id": pr_set_id}, db)
+    # the 65kg PR is voided, so logging 60kg again should look like a fresh first-time lift
+    out = reg.call("workouts__log_set", {"exercise": "bench", "weight_kg": 60, "reps": 8}, db)
+    assert out["first_time"] and not out["is_pr"]
 
 
 class FakeClient:

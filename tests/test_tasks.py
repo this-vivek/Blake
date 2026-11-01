@@ -41,3 +41,19 @@ def test_complete_task_matches_partial_title(reg, db):
 def test_complete_task_no_match_errors(reg, db):
     out = reg.call("tasks__complete_task", {"title": "nonexistent"}, db)
     assert "error" in out
+
+
+def test_voided_task_excluded_from_open_list(reg, db):
+    reg.call("tasks__add_task", {"title": "Buy milk"}, db)
+    task_id = db.query("tasks", "task")[0]["id"]
+    reg.call("events__void_event", {"event_id": task_id}, db)
+    assert reg.call("tasks__list_tasks", {}, db)["open_tasks"] == []
+
+
+def test_voiding_completion_reopens_task(reg, db):
+    reg.call("tasks__add_task", {"title": "Buy milk"}, db)
+    reg.call("tasks__complete_task", {"title": "buy milk"}, db)
+    done_id = db.query("tasks", "task_done")[0]["id"]
+    reg.call("events__void_event", {"event_id": done_id}, db)
+    out = reg.call("tasks__list_tasks", {}, db)
+    assert [t["title"] for t in out["open_tasks"]] == ["Buy milk"]

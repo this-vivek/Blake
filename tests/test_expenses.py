@@ -41,6 +41,13 @@ def test_daily_summary_totals_and_breaks_down_by_category(reg, db):
     assert out["today"]["by_category"] == {"food": 125.0, "transport": 50.0}
 
 
+def test_voided_expense_excluded_from_daily_summary(reg, db):
+    reg.call("expenses__log_expense", {"amount": 500, "category": "food"}, db)
+    expense_id = db.query("expenses", "expense")[0]["id"]
+    reg.call("events__void_event", {"event_id": expense_id}, db)
+    assert reg.call("expenses__daily_summary", {}, db)["today"]["total"] == 0.0
+
+
 def test_daily_summary_excludes_spend_from_previous_calendar_day(reg, db, monkeypatch):
     import datetime
     import zoneinfo
