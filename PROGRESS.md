@@ -45,10 +45,14 @@ All modules are auto-discovered by `app/core/registry.py` — adding a module re
 
 ## Android app
 
-Three tabs:
-1. **Today** (default) — pick Gym/Home → muscle-group chips → instant exercise plan. Meal-type chips (defaulting to current local time) → suggested combo with editable gram fields → "Log this meal".
-2. **Log** — free-text + optional photo chat box (the original logging flow), with a Settings dialog for server URL / API key.
-3. **History** — today's summary (meals kcal, spend, open tasks) plus a browsable per-module event list.
+Bottom nav: **Today** / **Timeline** / **Insights**, gear icon in the top bar → **Settings**.
+
+1. **Today** (default/start destination) — Gym/Home → muscle-group chips → instant exercise plan; meal-type chips (defaulting to current local time) → suggested combo with editable gram fields → "Log this meal"; docked input bar at the bottom ("Log anything...", text + photo) replacing the old standalone Log tab — each reply renders as a result card with Edit (void + repopulate input) / Undo per logged event.
+2. **Timeline** (replaces History) — today's summary line, filter chips per module, feed grouped by day ("Today"/"Yesterday"/date). Tapping an entry expands an Undo action; voided entries stay visible with strikethrough rather than disappearing.
+3. **Insights** — placeholder (real content is P6).
+4. **Settings** — server URL / API key, plus goals (kcal, protein_g, daily_spend, workout_days_per_week) wired to `GET`/`PUT /goals`.
+
+M3 theme with dynamic color (Android 12+) + dark mode (`BlakeTheme`), edge-to-edge, `Format` utility (whole-number kcal, "92 g", "₹1,240" en-IN grouping) applied to every displayed number.
 
 ## Real bugs found and fixed along the way
 
@@ -63,11 +67,17 @@ Three tabs:
 
 All 8 tasks done: day-boundary fix, void/correction events, idempotent writes (`client_id`), `goals` module, direct log endpoints (`/log/set`, `/tasks/{id}/complete`), `GET /today` aggregate, photo-storage audit (confirmed clean, no fix needed), and a stable Android CI signing key (committed PKCS12 debug keystore so consecutive CI-built APKs install over each other without uninstalling).
 
-Next up per `ROADMAP-NEXTGEN.md`: P1 (app shell/design system — bottom nav, edge-to-edge, Navigation Compose, a shared number formatter, docked input bar with result cards).
+## P1 (app shell/design system) — complete, one caveat
+
+All 7 tasks done: M3 dynamic-color theme + dark mode + edge-to-edge, `Format` utility, Navigation Compose bottom-nav shell, Settings as its own screen (incl. goals), input bar docked on Today with result-card Edit/Undo, Timeline replacing History (day-grouped, tap-to-Undo), Roborazzi wired into CI.
+
+**Caveat on the last one:** Roborazzi's screenshot tests run and pass (8/8, confirmed via downloaded test-reports — not just CI's own "success" status) but produce zero actual PNG files, with two different invocation strategies (`-Proborazzi.test.record=true` and the dedicated `recordRoborazziDebug` task) producing byte-for-byte identical behavior. Likely cause: Robolectric's `NATIVE` graphics mode needs native rendering libraries that may be missing on the default `ubuntu-latest` runner, and some Roborazzi versions skip writing silently rather than failing when rendering can't actually produce pixels. Diagnosing further needs either raw system-level CI logs (blocked — downloading them requires repo-admin auth this session doesn't have) or trial-and-error with native packages. Scaffolding is left in place (harmless, tests pass, APK build unaffected); worth revisiting with log access or by trying Paparazzi instead (the roadmap's named alternative).
+
+Next up per `ROADMAP-NEXTGEN.md`: P2 (offline-first data layer — Room, WorkManager outbox, cached-first UI).
 
 ## Testing
 
-65 tests, all offline (fake Anthropic client, SQLite `:memory:`/injected clock — no real API calls, no network, no wall-clock dependency). `evals/routing_cases.jsonl` has 31 routing cases for `make eval` (hits the real API, intentionally excluded from `make test`).
+65 backend tests, all offline (fake Anthropic client, SQLite `:memory:`/injected clock — no real API calls, no network, no wall-clock dependency). `evals/routing_cases.jsonl` has 31 routing cases for `make eval` (hits the real API, intentionally excluded from `make test`). Android: 8 Roborazzi screenshot tests (pass, but currently produce no viewable output — see P1 caveat above).
 
 ## Known limitations / open items
 
@@ -75,4 +85,5 @@ Next up per `ROADMAP-NEXTGEN.md`: P1 (app shell/design system — bottom nav, ed
 - Word-subset food matching can still misfire on multi-ingredient dish names without parentheses (e.g. "egg curry with onion and tomato" could match the wrong ingredient if the dish name itself isn't in the table) — targeted for improvement in P5.
 - Render free tier cold-starts (~5-30s) after ~15 min idle — Android client has a 40s timeout to absorb this, but first request after idle is slow.
 - No notifications/reminders, no streaks/gamification, no multi-user support (single shared API key, single shared DB) — explicitly out of scope per `ROADMAP-NEXTGEN.md`'s fixed constraints, except reminders/widget (P7) and habits/streaks (P8).
-- Android app's UI hasn't caught up to the new backend endpoints yet (`/today`, `/goals`, void/undo, `/log/set` direct endpoint) — that's P1-P4's job.
+- Everything is online-only right now — no Room cache, no outbox, no offline logging. That's P2.
+- Roborazzi screenshot tests produce no viewable PNGs yet (see P1 caveat above).
