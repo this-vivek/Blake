@@ -42,6 +42,12 @@ def test_unknown_food_reported(reg, db):
     assert out["unknown_items"] == ["dragonfruit"] and out["logged"] == []
 
 
+def test_unknown_food_queued_for_curation(reg, db):
+    reg.call("meals__log_meal", {"items": [{"name": "dragonfruit", "grams": 50}]}, db)
+    queued = db.query("meals", "unmatched")
+    assert queued[0]["payload"] == {"name": "dragonfruit", "grams": 50.0}
+
+
 def test_meal_rejects_bad_input(reg, db):
     assert "error" in reg.call("meals__log_meal", {"items": []}, db)
 

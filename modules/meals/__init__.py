@@ -51,6 +51,83 @@ FOODS = {
     "poha": (130, 2.7, 24.0, 3.0),
     "whey protein": (400, 80.0, 10.0, 3.3),
     "protein powder": (400, 80.0, 10.0, 3.3),
+    # Indian dishes
+    "sambar": (73, 3.8, 11.0, 1.8),
+    "rajma": (140, 8.7, 22.8, 0.5),
+    "chole": (164, 8.9, 27.4, 2.6),
+    "biryani": (195, 6.5, 28.0, 6.0),
+    "upma": (132, 3.5, 23.0, 3.2),
+    "paratha": (330, 6.4, 45.0, 14.0),
+    "naan": (310, 9.0, 50.0, 8.0),
+    "vada": (246, 7.0, 24.0, 14.0),
+    "uttapam": (150, 4.0, 26.0, 3.5),
+    "khichdi": (120, 4.0, 22.0, 2.0),
+    "pulao": (160, 3.5, 28.0, 4.0),
+    "raita": (60, 2.7, 4.5, 3.2),
+    "kheer": (150, 4.0, 22.0, 5.0),
+    "samosa": (262, 4.0, 28.0, 16.0),
+    "pakora": (280, 6.0, 25.0, 18.0),
+    # fruits
+    "grapes": (69, 0.7, 18.0, 0.2),
+    "watermelon": (30, 0.6, 7.6, 0.2),
+    "papaya": (43, 0.5, 11.0, 0.3),
+    "pineapple": (50, 0.5, 13.1, 0.1),
+    "strawberry": (32, 0.7, 7.7, 0.3),
+    "pear": (57, 0.4, 15.2, 0.1),
+    "pomegranate": (83, 1.7, 18.7, 1.2),
+    "guava": (68, 2.6, 14.3, 1.0),
+    # vegetables
+    "cabbage": (25, 1.3, 5.8, 0.1),
+    "cauliflower": (25, 1.9, 5.0, 0.3),
+    "broccoli": (34, 2.8, 6.6, 0.4),
+    "peas": (81, 5.4, 14.5, 0.4),
+    "beetroot": (43, 1.6, 9.6, 0.2),
+    "bell pepper": (31, 1.0, 6.0, 0.3),
+    "okra": (33, 1.9, 7.5, 0.2),
+    "pumpkin": (26, 1.0, 6.5, 0.1),
+    # proteins
+    "mutton": (294, 25.0, 0.0, 21.0),
+    "pork": (242, 27.0, 0.0, 14.0),
+    "turkey": (189, 29.0, 0.0, 7.4),
+    "shrimp": (99, 24.0, 0.2, 0.3),
+    "prawns": (99, 24.0, 0.2, 0.3),
+    "mackerel": (205, 19.0, 0.0, 13.9),
+    "tuna": (132, 28.0, 0.0, 1.3),
+    # dairy
+    "cream": (340, 2.1, 2.8, 36.1),
+    "condensed milk": (321, 7.9, 54.4, 8.7),
+    # grains
+    "brown rice": (112, 2.3, 23.5, 0.8),
+    "millet": (378, 11.0, 73.0, 4.2),
+    "ragi": (328, 7.3, 72.0, 1.3),
+    "semolina": (360, 12.7, 72.8, 1.1),
+    "vermicelli": (109, 3.3, 24.0, 0.2),
+    # legumes/nuts/seeds
+    "soybean": (173, 16.6, 9.9, 9.0),
+    "black beans": (132, 8.9, 23.7, 0.5),
+    "walnut": (654, 15.2, 13.7, 65.2),
+    "cashew": (553, 18.2, 30.2, 44.0),
+    "pistachio": (560, 20.3, 27.2, 45.3),
+    "chia seeds": (486, 16.5, 42.1, 30.7),
+    "flax seeds": (534, 18.3, 28.9, 42.2),
+    "sunflower seeds": (584, 20.8, 20.0, 51.5),
+    # snacks / misc
+    "chips": (536, 7.0, 53.0, 35.0),
+    "biscuit": (480, 6.0, 65.0, 21.0),
+    "chocolate": (546, 7.8, 60.0, 31.0),
+    "ice cream": (207, 3.5, 24.0, 11.0),
+    "honey": (304, 0.3, 82.4, 0.0),
+    "jaggery": (383, 0.4, 98.0, 0.1),
+    # beverages
+    "coffee": (2, 0.3, 0.0, 0.0),
+    "tea": (1, 0.0, 0.3, 0.0),
+    "coconut water": (19, 0.7, 3.7, 0.2),
+    "orange juice": (45, 0.7, 10.4, 0.2),
+    # oils / condiments
+    "olive oil": (884, 0.0, 0.0, 100.0),
+    "coconut oil": (862, 0.0, 0.0, 100.0),
+    "mayonnaise": (680, 1.0, 0.6, 75.0),
+    "ketchup": (112, 1.2, 27.0, 0.1),
 }
 
 # Common qualifiers Claude adds that shouldn't block a match (boiled, cooked, raw, etc.).
@@ -91,6 +168,8 @@ def log_meal(args: dict, db) -> dict:
         matched = _match(raw_name) if raw_name else None
         if not matched or grams <= 0:
             unknown.append(raw_name or "?")
+            if raw_name:
+                db.append("meals", "unmatched", {"name": raw_name, "grams": grams})
             continue
         name, per100 = matched
         m = dict(zip(("kcal", "protein", "carbs", "fat"), (v * grams / 100 for v in per100)))
