@@ -34,7 +34,7 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Record screenshots (light + dark, every screen)
-        run: gradle testDebugUnitTest -Proborazzi.test.record=true --no-daemon --stacktrace
+        run: gradle recordRoborazziDebug --no-daemon --stacktrace
 
       - uses: actions/upload-artifact@v4
         if: always()
