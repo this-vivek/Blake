@@ -1,7 +1,10 @@
 package com.blake.app.ui.pop
 
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
@@ -10,28 +13,28 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /** A darker shade of this color, used for the "shadow" layer beneath a Pop surface. */
-fun Color.popShadow(factor: Float = 0.6f): Color =
+fun Color.popShadow(factor: Float = 0.45f): Color =
     copy(red = red * factor, green = green * factor, blue = blue * factor)
 
-private val PRESS_DEPTH = 6.dp
+private val PRESS_DEPTH = 10.dp
+private val OUTLINE = Color.Black.copy(alpha = 0.85f)
 
 /**
  * NeoPop-style 3D button: a solid-color front surface sits [PRESS_DEPTH] above a darker
- * "shadow" surface of the same shape; pressing animates the front down to meet it, then back
- * up on release — the chunky, beveled "pop" look, built natively in Compose (the real NeoPop
- * library is XML-View-based and not usable here without AndroidView bridging).
+ * "shadow" surface of the same shape, both outlined in near-black for the bold "pop art"
+ * edge; pressing animates the front down to meet the shadow, then back up on release. Built
+ * natively in Compose (the real NeoPop library is XML-View-based and not usable here without
+ * AndroidView bridging) using the standard clickable+interactionSource press-state pattern,
+ * not a hand-rolled gesture detector.
  */
 @Composable
 fun PopButton(
@@ -43,14 +46,16 @@ fun PopButton(
     enabled: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    var pressed by remember { mutableStateOf(false) }
-    val offset by animateDpAsState(if (pressed) 0.dp else PRESS_DEPTH, label = "pop-offset")
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val offset by animateDpAsState(if (isPressed) 0.dp else PRESS_DEPTH, label = "pop-offset")
     val effectiveColor = if (enabled) color else color.copy(alpha = 0.4f)
 
     Box(modifier = modifier.height(56.dp + PRESS_DEPTH)) {
         Surface(
             shape = shape,
             color = effectiveColor.popShadow(),
+            border = BorderStroke(2.dp, OUTLINE),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp)
@@ -59,22 +64,18 @@ fun PopButton(
         Surface(
             shape = shape,
             color = effectiveColor,
+            border = BorderStroke(2.dp, OUTLINE),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp)
                 .offset(y = offset)
                 .align(Alignment.TopCenter)
-                .pointerInput(enabled) {
-                    if (!enabled) return@pointerInput
-                    detectTapGestures(
-                        onPress = {
-                            pressed = true
-                            tryAwaitRelease()
-                            pressed = false
-                        },
-                        onTap = { onClick() },
-                    )
-                },
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    enabled = enabled,
+                    onClick = onClick,
+                ),
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                 CompositionLocalProvider(LocalContentColor provides contentColor, content = content)
@@ -85,7 +86,7 @@ fun PopButton(
 
 /**
  * NeoPop-style selectable tile (used for Gym/Home and muscle-group pickers). Same layered
- * "pop" look as [PopButton], plus a tilt-free selected state (filled vs. outlined shadow).
+ * "pop" look as [PopButton].
  */
 @Composable
 fun PopTile(
@@ -96,10 +97,11 @@ fun PopTile(
     shape: Shape = RoundedCornerShape(20.dp),
     content: @Composable () -> Unit,
 ) {
-    var pressed by remember { mutableStateOf(false) }
-    val offset by animateDpAsState(if (pressed) 0.dp else PRESS_DEPTH, label = "pop-tile-offset")
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val offset by animateDpAsState(if (isPressed) 0.dp else PRESS_DEPTH, label = "pop-tile-offset")
     val baseColor = if (selected) {
-        MaterialTheme.colorScheme.primaryContainer
+        MaterialTheme.colorScheme.primary
     } else {
         MaterialTheme.colorScheme.surfaceVariant
     }
@@ -108,6 +110,7 @@ fun PopTile(
         Surface(
             shape = shape,
             color = baseColor.popShadow(),
+            border = BorderStroke(2.dp, OUTLINE),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(height)
@@ -116,24 +119,25 @@ fun PopTile(
         Surface(
             shape = shape,
             color = baseColor,
+            border = BorderStroke(2.dp, OUTLINE),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(height)
                 .offset(y = offset)
                 .align(Alignment.TopCenter)
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onPress = {
-                            pressed = true
-                            tryAwaitRelease()
-                            pressed = false
-                        },
-                        onTap = { onClick() },
-                    )
-                },
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick,
+                ),
         ) {
+            val contentColor = if (selected) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                content()
+                CompositionLocalProvider(LocalContentColor provides contentColor, content = content)
             }
         }
     }
