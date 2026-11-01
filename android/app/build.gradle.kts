@@ -59,6 +59,8 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.material3:material3")
+    // Basic icon set for bottom-nav items (Home/List/Info/Edit) — small, standard artifact
+    implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.2")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

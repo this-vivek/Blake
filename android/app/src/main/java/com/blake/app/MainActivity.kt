@@ -11,13 +11,25 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.List as ListIcon
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
 import com.blake.app.ui.theme.BlakeTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -49,11 +61,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             BlakeTheme {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .windowInsetsPadding(WindowInsets.safeDrawing)
-                ) {
+                // Scaffold owns inset handling (via bottomBar/innerPadding) for edge-to-edge,
+                // so the root Surface doesn't need its own windowInsetsPadding.
+                Surface(modifier = Modifier.fillMaxSize()) {
                     BlakeApp()
                 }
             }
@@ -61,21 +71,50 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private data class NavDestination(val route: String, val label: String, val icon: ImageVector)
+
+// "log" is temporary — removed once P1.5 docks the input bar on Today directly.
+private val DESTINATIONS = listOf(
+    NavDestination("today", "Today", Icons.Default.Home),
+    NavDestination("log", "Log", Icons.Default.Edit),
+    NavDestination("timeline", "Timeline", ListIcon),
+    NavDestination("insights", "Insights", Icons.Default.Info),
+)
+
+private fun NavHostController.navigateSingleTopTo(route: String) = navigate(route) {
+    popUpTo(graph.findStartDestination().id) { saveState = true }
+    launchSingleTop = true
+    restoreState = true
+}
+
 @Composable
 fun BlakeApp() {
-    var tab by remember { mutableStateOf(0) }
-    Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = tab, modifier = Modifier.fillMaxWidth()) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Today") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Log") })
-            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("History") })
-        }
-        Box(modifier = Modifier.weight(1f)) {
-            when (tab) {
-                0 -> TodayScreen()
-                1 -> ChatScreen()
-                else -> HistoryScreen()
+    val navController = rememberNavController()
+    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                DESTINATIONS.forEach { dest ->
+                    NavigationBarItem(
+                        selected = currentRoute == dest.route,
+                        onClick = { navController.navigateSingleTopTo(dest.route) },
+                        icon = { Icon(dest.icon, contentDescription = dest.label) },
+                        label = { Text(dest.label) },
+                    )
+                }
             }
+        },
+    ) { innerPadding ->
+        NavHost(
+            navController = navController,
+            startDestination = "today",
+            modifier = Modifier.padding(innerPadding),
+        ) {
+            composable("today") { TodayScreen() }
+            composable("log") { ChatScreen() }
+            composable("timeline") { HistoryScreen() }
+            composable("insights") { InsightsScreen() }
         }
     }
 }
