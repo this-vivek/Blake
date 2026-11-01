@@ -42,4 +42,22 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
             Result.failure(e)
         }
     }
+
+    fun summary(): Result<String> = get("$baseUrl/summary")
+
+    fun history(module: String, limit: Int = 20): Result<String> =
+        get("$baseUrl/history?module=$module&limit=$limit")
+
+    private fun get(url: String): Result<String> {
+        return try {
+            val request = Request.Builder().url(url).header("X-API-Key", apiKey).build()
+            client.newCall(request).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (resp.isSuccessful) Result.success(body)
+                else Result.failure(IOException("HTTP ${resp.code}: $body"))
+            }
+        } catch (e: IOException) {
+            Result.failure(e)
+        }
+    }
 }

@@ -21,20 +21,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private const val PREFS = "blake_prefs"
-private const val KEY_BASE_URL = "base_url"
-private const val KEY_API_KEY = "api_key"
-private const val DEFAULT_BASE_URL = "https://blake-assistant.onrender.com"
-
 class ChatViewModel : ViewModel() {
     var responseText by mutableStateOf("")
     var isLoading by mutableStateOf(false)
 
     fun send(context: Context, text: String, imageBytes: ByteArray?) {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val baseUrl = prefs.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
-        val apiKey = prefs.getString(KEY_API_KEY, "") ?: ""
-        val api = BlakeApi(baseUrl, apiKey)
+        val api = Prefs.apiFor(context)
 
         isLoading = true
         responseText = ""
@@ -55,9 +47,23 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    ChatScreen()
+                    BlakeApp()
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun BlakeApp() {
+    var tab by remember { mutableStateOf(0) }
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabRow(selectedTabIndex = tab, modifier = Modifier.fillMaxWidth()) {
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Log") })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("History") })
+        }
+        Box(modifier = Modifier.weight(1f)) {
+            if (tab == 0) ChatScreen() else HistoryScreen()
         }
     }
 }
@@ -132,9 +138,11 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
 @Composable
 fun SettingsDialog(onDismiss: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    var baseUrl by remember { mutableStateOf(prefs.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL) }
-    var apiKey by remember { mutableStateOf(prefs.getString(KEY_API_KEY, "") ?: "") }
+    val prefs = context.getSharedPreferences(Prefs.NAME, Context.MODE_PRIVATE)
+    var baseUrl by remember {
+        mutableStateOf(prefs.getString(Prefs.KEY_BASE_URL, Prefs.DEFAULT_BASE_URL) ?: Prefs.DEFAULT_BASE_URL)
+    }
+    var apiKey by remember { mutableStateOf(prefs.getString(Prefs.KEY_API_KEY, "") ?: "") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -158,8 +166,8 @@ fun SettingsDialog(onDismiss: () -> Unit) {
         confirmButton = {
             TextButton(onClick = {
                 prefs.edit()
-                    .putString(KEY_BASE_URL, baseUrl.trimEnd('/'))
-                    .putString(KEY_API_KEY, apiKey)
+                    .putString(Prefs.KEY_BASE_URL, baseUrl.trimEnd('/'))
+                    .putString(Prefs.KEY_API_KEY, apiKey)
                     .apply()
                 onDismiss()
             }) { Text("Save") }
