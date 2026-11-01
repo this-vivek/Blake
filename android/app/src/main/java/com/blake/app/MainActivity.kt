@@ -83,6 +83,7 @@ private fun NavHostController.navigateSingleTopTo(route: String) = navigate(rout
     restoreState = true
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BlakeApp() {
     val navController = rememberNavController()
