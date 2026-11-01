@@ -11,4 +11,6 @@ services:
         sync: false
       - key: BLAKE_API_KEY
         sync: false
+      - key: DATABASE_URL
+        sync: false
     healthCheckPath: /health
