@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: blake-assistant
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: BLAKE_DB_PATH
+        value: /tmp/blake.db
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: BLAKE_API_KEY
+        sync: false
+    healthCheckPath: /health

@@ -1,0 +1,8 @@
+{"text": "had 2 rotis and dal for lunch", "expect": ["meals__log_meal"]}
+{"text": "ate 3 eggs for breakfast", "expect": ["meals__log_meal"]}
+{"text": "200g paneer and rice for dinner", "expect": ["meals__log_meal"]}
+{"text": "how many calories have I had today?", "expect": ["meals__daily_summary"]}
+{"text": "bench press 60kg x 8", "expect": ["workouts__log_set"]}
+{"text": "squat 100 for 5 reps", "expect": ["workouts__log_set"]}
+{"text": "deadlift 120x3 and 120x3 again", "expect": ["workouts__log_set"]}
+{"text": "2 eggs for breakfast, then bench 70x5", "expect": ["meals__log_meal", "workouts__log_set"]}
