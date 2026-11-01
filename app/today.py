@@ -53,6 +53,11 @@ def build_today(db, registry, now: float | None = None) -> dict:
             ],
             "muscle_groups_today": muscle_groups_today,
             "prs_today": prs_today,
+            # Durable regardless of app lifecycle — every set is logged (and its kcal_burned
+            # computed) the moment it happens, not batched at "finish session".
+            "kcal_burned_today": round(
+                sum(e["payload"].get("kcal_burned", 0.0) for e in sets_today), 1
+            ),
         },
         "spend": {"actual": spend_today["total"], "goal": goals.get("daily_spend")},
         "open_tasks": open_tasks,

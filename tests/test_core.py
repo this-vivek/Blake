@@ -147,6 +147,25 @@ def test_log_set_retry_with_same_client_id_does_not_double_log(reg, db):
     assert len(db.query("workouts", "set")) == 1
 
 
+def test_log_set_estimates_kcal_burned_deterministically(reg, db):
+    out = reg.call("workouts__log_set", {"exercise": "bench press", "weight_kg": 60, "reps": 8}, db)
+    # chest MET 5.0, default bodyweight 70kg, 0.75min: 5.0*70*3.5/200*0.75 = 4.59 -> 4.6
+    assert out["kcal_burned"] == 4.6
+
+
+def test_log_set_kcal_burned_uses_bodyweight_goal(reg, db):
+    reg.call("goals__set_goal", {"bodyweight_kg": 100}, db)
+    out = reg.call("workouts__log_set", {"exercise": "bench press", "weight_kg": 60, "reps": 8}, db)
+    # 5.0*100*3.5/200*0.75 = 6.5625 -> 6.6
+    assert out["kcal_burned"] == 6.6
+
+
+def test_log_set_unknown_exercise_falls_back_to_default_met(reg, db):
+    out = reg.call("workouts__log_set", {"exercise": "made up lift", "weight_kg": 60, "reps": 8}, db)
+    # DEFAULT_MET 5.0, default bodyweight 70kg: same as chest's MET in this case
+    assert out["kcal_burned"] == 4.6
+
+
 class FakeClient:
     """Scripted: first call -> tool_use, second -> final text."""
     def __init__(self):

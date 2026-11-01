@@ -37,6 +37,7 @@ def test_today_snapshot_with_fixed_clock(reg, db):
     assert out["training"]["sets_today"][0]["exercise"] == "bench press"
     assert out["training"]["muscle_groups_today"] == ["chest"]
     assert out["training"]["prs_today"] == []  # first-ever lift isn't a PR
+    assert out["training"]["kcal_burned_today"] == 4.6
     assert out["spend"]["actual"] == 500.0
     assert out["spend"]["goal"] == 800.0
     assert [t["title"] for t in out["open_tasks"]] == ["Buy milk"]
@@ -82,3 +83,13 @@ def test_today_caps_nudges_at_two(reg, db):
 def test_today_no_goals_set_has_no_nudge_crash(reg, db):
     out = build_today(db, reg)
     assert isinstance(out["nudges"], list)
+
+
+def test_kcal_burned_today_survives_partial_session(reg, db):
+    # Simulates the app being closed mid-session: only 2 of a planned 4 sets got logged.
+    # Each set is logged immediately (not batched at "finish session"), so the total already
+    # reflects real progress without any special resume/recovery logic.
+    reg.call("workouts__log_set", {"exercise": "bench press", "weight_kg": 60, "reps": 8}, db)
+    reg.call("workouts__log_set", {"exercise": "bench press", "weight_kg": 60, "reps": 8}, db)
+    out = build_today(db, reg)
+    assert out["training"]["kcal_burned_today"] == 9.2  # 2 x 4.6

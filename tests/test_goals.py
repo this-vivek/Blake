@@ -43,6 +43,16 @@ def test_set_goal_rejects_negative_kcal(reg, db):
     assert "error" in reg.call("goals__set_goal", {"kcal": -100}, db)
 
 
+def test_set_goal_bodyweight(reg, db):
+    out = reg.call("goals__set_goal", {"bodyweight_kg": 72.5}, db)
+    assert out["updated"] == {"bodyweight_kg": 72.5}
+
+
+def test_set_goal_rejects_unreasonable_bodyweight(reg, db):
+    assert "error" in reg.call("goals__set_goal", {"bodyweight_kg": 5}, db)
+    assert "error" in reg.call("goals__set_goal", {"bodyweight_kg": 1000}, db)
+
+
 def test_voided_goal_update_does_not_apply(reg, db):
     reg.call("goals__set_goal", {"protein_g": 140}, db)
     reg.call("goals__set_goal", {"protein_g": 200}, db)

@@ -6,6 +6,7 @@ FIELDS = {
     "protein_g": (float, lambda v: v >= 0),
     "daily_spend": (float, lambda v: v >= 0),
     "workout_days_per_week": (int, lambda v: 0 <= v <= 7),
+    "bodyweight_kg": (float, lambda v: 20 <= v <= 300),  # used by workouts' kcal-burned estimate
 }
 
 
@@ -53,6 +54,7 @@ module = Module(
                 "protein_g": {"type": "number"},
                 "daily_spend": {"type": "number"},
                 "workout_days_per_week": {"type": "integer"},
+                "bodyweight_kg": {"type": "number"},
             }},
             set_goal,
         ),

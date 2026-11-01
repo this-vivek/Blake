@@ -1,4 +1,16 @@
 from app.core.module import Module, Tool
+from modules.goals import get_goals
+
+# Rough MET (Metabolic Equivalent of Task) values per muscle group, used only to estimate
+# calories burned per set — an approximation by nature, not a precise measurement. Cardio
+# exercises get a higher MET; smaller muscle groups (biceps/triceps) a lower one.
+MET_BY_GROUP = {
+    "chest": 5.0, "back": 5.0, "legs": 6.0, "shoulders": 4.0,
+    "biceps": 3.5, "triceps": 3.5, "core": 4.0, "cardio": 8.0,
+}
+DEFAULT_MET = 5.0
+SET_DURATION_MIN = 0.75  # ~45s of actual work per strength set — a rough constant
+DEFAULT_BODYWEIGHT_KG = 70.0
 
 # Static split: (location, muscle_group) -> exercises with default sets/reps.
 # Deterministic plan data, not a model guess — edit directly to match your real routine.
@@ -102,6 +114,15 @@ EXERCISES: dict[tuple[str, str], list[dict]] = {
 }
 
 
+def _kcal_for_set(exercise: str, db) -> float:
+    """Deterministic estimate: MET * bodyweight_kg * 3.5 / 200 * duration_minutes.
+    Bodyweight comes from goals (bodyweight_kg), defaulting if not set."""
+    groups = muscle_groups_for({exercise})
+    met = MET_BY_GROUP.get(groups[0], DEFAULT_MET) if groups else DEFAULT_MET
+    bodyweight = get_goals({}, db).get("bodyweight_kg", DEFAULT_BODYWEIGHT_KG)
+    return round(met * bodyweight * 3.5 / 200 * SET_DURATION_MIN, 1)
+
+
 def log_set(args: dict, db) -> dict:
     try:
         ex = str(args["exercise"]).strip().lower()
@@ -119,17 +140,20 @@ def log_set(args: dict, db) -> dict:
             return {"logged": {"exercise": p["exercise"], "weight_kg": p["weight_kg"],
                                 "reps": p["reps"]}, "e1rm": p["e1rm"],
                     "is_pr": False, "first_time": False, "duplicate": True,
-                    "event_id": existing["id"]}
+                    "event_id": existing["id"], "kcal_burned": p.get("kcal_burned", 0.0)}
 
     e1rm = round(w * (1 + reps / 30), 1)  # Epley
     prev = [x["payload"]["e1rm"] for x in db.query_active("workouts", "set")
             if x["payload"]["exercise"] == ex]
     is_pr = bool(prev) and e1rm > max(prev)
+    kcal_burned = _kcal_for_set(ex, db)
     event_id = db.append(
-        "workouts", "set", {"exercise": ex, "weight_kg": w, "reps": reps, "e1rm": e1rm},
+        "workouts", "set",
+        {"exercise": ex, "weight_kg": w, "reps": reps, "e1rm": e1rm, "kcal_burned": kcal_burned},
         client_id=client_id)
     return {"logged": {"exercise": ex, "weight_kg": w, "reps": reps},
-            "e1rm": e1rm, "is_pr": is_pr, "first_time": not prev, "event_id": event_id}
+            "e1rm": e1rm, "is_pr": is_pr, "first_time": not prev, "event_id": event_id,
+            "kcal_burned": kcal_burned}
 
 
 def suggest_routine(args: dict, db) -> dict:
