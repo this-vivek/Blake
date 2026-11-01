@@ -144,7 +144,7 @@ class TodayViewModel : ViewModel() {
     var chatEventIds by mutableStateOf<List<Pair<String, Int>>>(emptyList())
     var chatUndone by mutableStateOf<Set<Int>>(emptySet())
 
-    fun sendChat(context: Context, imageBytes: ByteArray?) {
+    fun sendChat(context: Context, imageBytes: ByteArray?, imageMimeType: String?) {
         if (chatInput.isBlank() && imageBytes == null) return
         chatLoading = true
         chatResultText = ""
@@ -154,7 +154,9 @@ class TodayViewModel : ViewModel() {
         val text = chatInput
         lastSentText = text
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { api.chat(text, imageBytes) }
+            val result = withContext(Dispatchers.IO) {
+                api.chat(text, imageBytes, imageMimeType ?: "image/jpeg")
+            }
             chatLoading = false
             result.fold(
                 onSuccess = { json ->
@@ -330,10 +332,10 @@ private fun ChatInputBar(vm: TodayViewModel) {
         }
         Button(
             onClick = {
-                val bytes = vm.chatImageUri?.let { uri ->
-                    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                }
-                vm.sendChat(context, bytes)
+                val uri = vm.chatImageUri
+                val bytes = uri?.let { context.contentResolver.openInputStream(it)?.use { s -> s.readBytes() } }
+                val mimeType = uri?.let { context.contentResolver.getType(it) }
+                vm.sendChat(context, bytes, mimeType)
             },
             enabled = !vm.chatLoading && (vm.chatInput.isNotBlank() || vm.chatImageUri != null),
         ) {

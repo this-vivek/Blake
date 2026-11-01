@@ -36,7 +36,10 @@ async def chat(text: str = Form(""), image: UploadFile | None = File(None)):  # 
         content.append({"type": "image", "source": {
             "type": "base64", "media_type": image.content_type or "image/jpeg", "data": data}})
     content.append({"type": "text", "text": text or "Log this."})
-    result = run_turn(client, db, registry, content)
+    try:
+        result = run_turn(client, db, registry, content)
+    except Exception as e:  # noqa: BLE001 - never crash the request on a bad image/API error
+        return {"error": f"{type(e).__name__}: {e}"}
     db.append("chat", "turn", {"text": text, "has_image": image is not None, **result})
     return result
 
