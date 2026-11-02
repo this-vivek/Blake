@@ -1,3 +1,4 @@
+from app.core import clock
 from app.core.module import Module, Tool
 from modules.goals import get_goals
 
@@ -203,6 +204,58 @@ def prs_in(sets_sorted_by_time: list[dict], since: float) -> list[dict]:
         if prev_best is None or e1rm > prev_best:
             best_so_far[ex] = e1rm
     return prs
+
+
+INCREMENT_KG_BY_EQUIPMENT = {"barbell": 2.5, "dumbbell": 2.0}
+DEFAULT_INCREMENT_KG = 2.5
+
+
+def _target_reps_for(exercise: str) -> int | None:
+    """Reverse lookup: the planned numeric rep target for this exercise, from EXERCISES.
+    None if the exercise isn't in the table, or its target isn't a plain integer (e.g. a
+    duration like "45s" or "12 per leg") — progressive overload's "hit every rep" check
+    doesn't apply the same way to those, so there's nothing safe to compare against."""
+    name = exercise.lower()
+    for exercises in EXERCISES.values():
+        for ex in exercises:
+            if ex["exercise"].lower() == name:
+                digits = ex["reps"].split()[0]
+                return int(digits) if digits.isdigit() else None
+    return None
+
+
+def _equipment_for(exercise: str) -> str:
+    return "dumbbell" if "dumbbell" in exercise.lower() else "barbell"
+
+
+def suggested_next(exercise: str, db) -> dict:
+    """Deterministic progressive overload (ROADMAP-NEXTGEN.md P4): if every set in the most
+    recent session for this exercise hit (or exceeded) its planned rep target, suggest that
+    session's weight plus a fixed increment (2.5kg barbell, 2kg dumbbell by default);
+    otherwise suggest repeating the same weight. No history yet -> no suggestion."""
+    ex_lower = exercise.strip().lower()
+    sets = sorted(
+        (e for e in db.query_active("workouts", "set", limit=10**6)
+         if e["payload"]["exercise"] == ex_lower),
+        key=lambda e: e["ts"],
+    )
+    if not sets:
+        return {"exercise": ex_lower, "last_weight_kg": None, "last_reps": None, "suggested_weight_kg": None}
+
+    last_day = clock.day_start(at=sets[-1]["ts"])
+    last_session = [e for e in sets if clock.day_start(at=e["ts"]) == last_day]
+    last_weight = last_session[-1]["payload"]["weight_kg"]
+    last_reps = last_session[-1]["payload"]["reps"]
+
+    target_reps = _target_reps_for(ex_lower)
+    all_hit_target = target_reps is not None and all(
+        s["payload"]["reps"] >= target_reps for s in last_session
+    )
+    increment = INCREMENT_KG_BY_EQUIPMENT.get(_equipment_for(ex_lower), DEFAULT_INCREMENT_KG)
+    suggested_weight = round(last_weight + increment, 1) if all_hit_target else last_weight
+
+    return {"exercise": ex_lower, "last_weight_kg": last_weight, "last_reps": last_reps,
+            "suggested_weight_kg": suggested_weight}
 
 
 module = Module(

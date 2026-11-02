@@ -10,6 +10,7 @@ from app.core.registry import Registry
 from app.core.router import run_turn
 from app.meal_refresh import refresh_meal_suggestion
 from app.today import build_today
+from modules.workouts import suggested_next
 
 app = FastAPI(title="Blake")
 db = Db(os.getenv("BLAKE_DB_PATH", "blake.db"))
@@ -79,6 +80,11 @@ def suggest_workout(location: str, muscle_group: str):
     return registry.call(
         "workouts__suggest_routine", {"location": location, "muscle_group": muscle_group}, db
     )
+
+
+@app.get("/suggest/next_set", dependencies=[Depends(require_api_key)])
+def suggest_next_set(exercise: str):
+    return suggested_next(exercise, db)
 
 
 @app.get("/suggest/meal", dependencies=[Depends(require_api_key)])

@@ -3,6 +3,7 @@ import pytest
 from app.core.db import Db
 from app.core.registry import Registry
 from modules.meals import usual_combo
+from modules.workouts import suggested_next
 
 
 @pytest.fixture
@@ -89,6 +90,44 @@ def test_usual_combo_only_considers_matching_slot(reg, db):
     reg.call("meals__log_meal", {"meal": "breakfast", "items": [{"name": "egg", "grams": 100}]}, db)
     out = usual_combo("lunch", db)
     assert out["times_logged"] == 0
+
+
+def test_suggested_next_no_history(db):
+    out = suggested_next("bench press", db)
+    assert out == {"exercise": "bench press", "last_weight_kg": None, "last_reps": None,
+                    "suggested_weight_kg": None}
+
+
+def test_suggested_next_suggests_barbell_increment_when_target_hit(reg, db):
+    reg.call("workouts__log_set", {"exercise": "Bench Press", "weight_kg": 60, "reps": 8}, db)
+    out = suggested_next("bench press", db)
+    assert out["last_weight_kg"] == 60.0
+    assert out["suggested_weight_kg"] == 62.5
+
+
+def test_suggested_next_uses_dumbbell_increment(reg, db):
+    reg.call("workouts__log_set", {"exercise": "Incline Dumbbell Press", "weight_kg": 20, "reps": 10}, db)
+    out = suggested_next("incline dumbbell press", db)
+    assert out["suggested_weight_kg"] == 22.0
+
+
+def test_suggested_next_repeats_weight_when_target_missed(reg, db):
+    reg.call("workouts__log_set", {"exercise": "Bench Press", "weight_kg": 60, "reps": 6}, db)
+    out = suggested_next("bench press", db)
+    assert out["suggested_weight_kg"] == 60.0
+
+
+def test_suggested_next_requires_every_set_in_session_to_hit_target(reg, db):
+    reg.call("workouts__log_set", {"exercise": "Bench Press", "weight_kg": 60, "reps": 8}, db)
+    reg.call("workouts__log_set", {"exercise": "Bench Press", "weight_kg": 60, "reps": 6}, db)
+    out = suggested_next("bench press", db)
+    assert out["suggested_weight_kg"] == 60.0
+
+
+def test_suggested_next_unknown_exercise_has_no_target_so_repeats_weight(reg, db):
+    reg.call("workouts__log_set", {"exercise": "Custom Lift", "weight_kg": 40, "reps": 5}, db)
+    out = suggested_next("custom lift", db)
+    assert out["suggested_weight_kg"] == 40.0
 
 
 def test_usual_combo_ignores_meals_outside_30_days(reg, db):
