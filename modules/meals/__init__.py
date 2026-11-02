@@ -460,7 +460,8 @@ def add_custom_food(args: dict, db) -> dict:
         per100 = [float(per100_in[k]) for k in ("kcal", "protein", "carbs", "fat")]
     except (KeyError, TypeError, ValueError):
         return {"error": "per100 needs kcal, protein, carbs, fat"}
-    event_id = db.append("meals", "custom_food", {"name": name, "per100": per100, "source": "user"})
+    source = str(args.get("source") or "user").strip()[:200] or "user"
+    event_id = db.append("meals", "custom_food", {"name": name, "per100": per100, "source": source})
     return {"name": name, "per100": dict(zip(("kcal", "protein", "carbs", "fat"), per100)),
             "event_id": event_id}
 

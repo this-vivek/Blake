@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.core.db import Db
 from app.core.registry import Registry
 from app.core.router import run_turn
+from app.food_lookup import propose_food
 from app.meal_refresh import refresh_meal_suggestion
 from app.reset import reset_day, reset_logs
 from app.today import build_today
@@ -142,9 +143,21 @@ def meals_unmatched():
     return list_unmatched(db)
 
 
+class ProposeFoodRequest(BaseModel):
+    name: str
+
+
+@app.post("/meals/propose", dependencies=[Depends(require_api_key)])
+def meals_propose(req: ProposeFoodRequest):
+    """Looks up per-100 g values for an unknown food (USDA, else a labelled AI estimate).
+    Nothing is stored; approving it is POST /meals/custom_food."""
+    return propose_food(client, req.name)
+
+
 class AddCustomFoodRequest(BaseModel):
     name: str
     per100: dict[str, float]
+    source: str = "user"
 
 
 @app.post("/meals/custom_food", dependencies=[Depends(require_api_key)])
