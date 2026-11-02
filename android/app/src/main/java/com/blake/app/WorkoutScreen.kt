@@ -41,7 +41,13 @@ private val MUSCLE_GROUP_OPTIONS = listOf(
     MuscleGroupOption("cardio", "Cardio"),
 )
 
-data class ExerciseItem(val group: String, val name: String, val sets: Int, val reps: String)
+data class ExerciseItem(
+    val group: String,
+    val name: String,
+    val sets: Int,
+    val reps: String,
+    val note: String = "",
+)
 
 class WorkoutViewModel : ViewModel() {
     var location by mutableStateOf<String?>(null)
