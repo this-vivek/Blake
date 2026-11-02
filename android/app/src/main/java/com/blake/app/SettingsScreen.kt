@@ -265,22 +265,53 @@ fun SettingsScreen(
 
         MusicCard(context)
 
+        UpdateSettingsCard(context)
+
         QuietButton("Unmatched items", onClick = onNavigateToUnmatched)
 
-        val version = remember {
-            try {
-                context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
-            } catch (e: Exception) {
-                "unknown"
-            }
-        }
-        Text(
-            "Version $version",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
 
         DataCard(vm, context, onDataReset)
+    }
+}
+
+@Composable
+private fun UpdateSettingsCard(context: Context) {
+    val version = remember {
+        try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
+        } catch (e: Exception) {
+            "unknown"
+        }
+    }
+    var status by remember { mutableStateOf("") }
+    var checking by remember { mutableStateOf(false) }
+    var newer by remember { mutableStateOf<UpdateInfo?>(null) }
+    val scope = rememberCoroutineScope()
+
+    BlakeCard {
+        SectionLabel("App version")
+        Text("Version $version", style = MaterialTheme.typography.bodyLarge)
+        SecondaryButton(if (checking) "Checking..." else "Check for updates", enabled = !checking, onClick = {
+            checking = true
+            status = ""
+            newer = null
+            scope.launch {
+                val result = withContext(Dispatchers.IO) { UpdateCheck.check(context, force = true) }
+                checking = false
+                when (result) {
+                    is UpdateResult.UpToDate -> status = "You have the latest build (${result.sha})."
+                    is UpdateResult.Available -> {
+                        status = "A newer build is available (${result.info.sha})."
+                        newer = result.info
+                    }
+                    is UpdateResult.Unknown -> status = result.reason
+                }
+            }
+        })
+        if (status.isNotBlank()) {
+            Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        newer?.let { info -> PrimaryButton("Download", onClick = { UpdateCheck.openDownload(context, info) }) }
     }
 }
 

@@ -87,6 +87,8 @@ The server runs on Render's free tier from the `Dockerfile` (see `render.yaml`) 
 
 Open `android/` in Android Studio, or let CI build it: every push that touches `android/` runs the **Android Build** workflow and uploads `blake-debug-apk`. The debug keystore is committed, so each new APK installs over the last one without uninstalling.
 
+Every passing build of `main` is also published as the `latest` GitHub release. The app checks it (on launch at most every 12 hours, or from Settings, **Check for updates**) and shows a card with a Download button when a newer build exists.
+
 First run: open **Settings**, set the server URL and API key, save, and set your goals.
 
 The look comes from the Blake Design System: near-black surfaces, one soft-gold accent, Sora for figures and Manrope for text, thin outline icons, and no dynamic wallpaper colour.

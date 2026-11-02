@@ -91,6 +91,7 @@ fun TodayScreen(
         ) {
             // Room for the expanded header, which is drawn above the list.
             Spacer(Modifier.height(HERO_EXPANDED))
+            UpdateCard()
             NextMeal(vm, context)
             if (vm.editingSlot != null) MealEditor(vm, context)
             Nudges(vm.todayJson)
@@ -328,6 +329,25 @@ private fun usualLine(usual: JSONObject): String {
     val names = if (items == null) emptyList() else (0 until items.length()).map { items.getJSONObject(it).optString("name") }
     val kcal = usual.optJSONObject("total")?.optDouble("kcal", 0.0) ?: 0.0
     return "Usual: ${names.take(3).joinToString(", ")} · ${kcal.toInt()} kcal"
+}
+
+@Composable
+private fun UpdateCard() {
+    val info = UpdateCheck.available ?: return
+    val context = LocalContext.current
+    BlakeCard {
+        SectionLabel("Update")
+        Text("A newer build of Blake is available.", style = MaterialTheme.typography.bodyLarge)
+        Text(
+            "Build ${info.sha}. Download it and open the file to install over this one.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            QuietButton("Download", onClick = { UpdateCheck.openDownload(context, info) })
+            QuietButton("Later", onClick = { UpdateCheck.dismiss(context, info) })
+        }
+    }
 }
 
 @Composable

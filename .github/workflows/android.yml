@@ -7,6 +7,9 @@ on:
       - ".github/workflows/android.yml"
   workflow_dispatch: {}
 
+permissions:
+  contents: write   # publish the latest build as a GitHub release
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -49,3 +52,15 @@ jobs:
           name: test-reports
           path: android/app/build/reports/tests/
           if-no-files-found: warn
+
+      # The app's "Check for updates" compares its own build with this release. Only a build whose
+      # tests passed is published, and a failure here never fails the build itself.
+      - name: Publish build as the latest release
+        if: success() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          short=$(echo "$GITHUB_SHA" | cut -c1-7)
+          gh release delete latest --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
+          gh release create latest "app/build/outputs/apk/debug/app-debug.apk#blake-debug.apk"             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "Blake $short"             --notes "Latest build from main. Commit $GITHUB_SHA"             --prerelease

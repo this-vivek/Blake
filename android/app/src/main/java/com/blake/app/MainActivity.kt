@@ -47,6 +47,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         Reminders.scheduleIfEnabled(this)
+        // Quietly look for a newer build (at most every 12 hours); Today shows a card if there is one.
+        lifecycleScope.launch(Dispatchers.IO) { UpdateCheck.check(this@MainActivity, force = false) }
         if (intent?.getBooleanExtra("start_session", false) == true) LaunchRequests.startSession = true
         setContent {
             BlakeTheme {
