@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from app.chat_context import build_content, build_context
 from app.core.db import Db
+from app.export import export_csv, export_json
 from app.core.registry import Registry
 from app.core.router import run_turn
 from app.food_lookup import propose_food
@@ -268,6 +269,17 @@ def log_expense_direct(req: LogExpenseRequest):
     return registry.call("expenses__log_expense", req.model_dump(), db)
 
 
+class AddTaskRequest(BaseModel):
+    title: str
+    due: str | None = None  # YYYY-MM-DD
+    client_id: str | None = None
+
+
+@app.post("/tasks", dependencies=[Depends(require_api_key)])
+def add_task_direct(req: AddTaskRequest):
+    return registry.call("tasks__add_task", req.model_dump(exclude_none=True), db)
+
+
 @app.post("/tasks/{task_id}/complete", dependencies=[Depends(require_api_key)])
 def complete_task_direct(task_id: int):
     return registry.call("tasks__complete_by_id", {"task_id": task_id}, db)
@@ -340,6 +352,23 @@ def review_weekly():
 def review_weekly_refresh():
     """Writes the last completed week's review again (one Sonnet call) and saves it."""
     return weekly_review(db, registry, client, force=True)
+
+
+@app.get("/export", dependencies=[Depends(require_api_key)])
+def export_data(format: str = "json"):
+    """Everything you logged. format=json (full) or csv (one flat sheet)."""
+    from datetime import date
+
+    from fastapi.responses import JSONResponse, Response
+
+    stamp = date.today().strftime("%Y%m%d")
+    if format == "csv":
+        return Response(export_csv(db), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f"attachment; filename=blake-export-{stamp}.csv"})
+    if format == "json":
+        return JSONResponse(export_json(db, registry),
+                            headers={"Content-Disposition": f"attachment; filename=blake-export-{stamp}.json"})
+    raise HTTPException(status_code=400, detail="format must be json or csv")
 
 
 @app.get("/today", dependencies=[Depends(require_api_key)])

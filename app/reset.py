@@ -23,7 +23,7 @@ LOG_KINDS = {
     "meals": ["meal", "unmatched"],
     "workouts": ["set", "warmup", "program_day_done"],
     "expenses": ["expense"],
-    "tasks": ["task", "task_done"],
+    "tasks": ["task", "task_done", "task_due"],
     "habits": ["habit_log"],
     "body": ["weight"],
     "sleep": ["sleep"],

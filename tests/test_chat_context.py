@@ -1,5 +1,7 @@
 import time
+from datetime import datetime
 from types import SimpleNamespace as NS
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -7,6 +9,9 @@ from app.chat_context import build_content, build_context
 from app.core.db import Db
 from app.core.registry import Registry
 from app.core.router import run_turn
+
+
+NOW = datetime(2026, 11, 4, 20, tzinfo=ZoneInfo("Asia/Kolkata")).timestamp()
 
 
 @pytest.fixture
@@ -29,8 +34,9 @@ def log_turn(reg, db, text, items, meal="breakfast", ts=None):
     return out["event_id"]
 
 
-def test_no_history_means_no_context(reg, db):
-    assert build_context(db, reg) == ""
+def test_no_history_means_only_todays_date(reg, db):
+    context = build_context(db, reg, now=NOW)
+    assert context == "Today is Wednesday 4 November 2026 (2026-11-04)."
 
 
 def test_context_has_the_last_turn_with_its_event_id_and_todays_meals(reg, db):

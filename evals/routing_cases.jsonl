@@ -59,3 +59,6 @@
 {"text": "only 5 hours sleep, quality 2 out of 5", "expect": ["sleep__log_sleep"]}
 {"text": "slept 8 hours, felt great", "expect": ["sleep__log_sleep"]}
 {"text": "how has my sleep been this week?", "expect": ["sleep__sleep_summary"]}
+{"text": "remind me to renew my gym membership on Friday", "expect": ["tasks__add_task"]}
+{"text": "add a task: call the dentist tomorrow", "expect": ["tasks__add_task"]}
+{"text": "I need to submit the report by the 15th", "expect": ["tasks__add_task"]}

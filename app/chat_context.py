@@ -5,6 +5,9 @@ plus a fresh log.
 It goes into the user message, never the system prompt, so the system prompt and tool schemas
 stay byte-identical between requests and prompt caching keeps working.
 """
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from app.core import clock
 
 MAX_TURNS = 3
@@ -47,9 +50,11 @@ def _is_undone(db, call: dict, cache: dict[str, set]) -> bool:
 
 
 def build_context(db, registry, now: float | None = None) -> str:
-    """Plain text for the model. Empty when there is nothing useful to say."""
+    """Plain text for the model: today's date, then recent turns and today's meals if any."""
     now = clock.now() if now is None else now
-    lines: list[str] = []
+    today = datetime.fromtimestamp(now, ZoneInfo(clock.DEFAULT_TZ)).date()
+    # The model has no clock: without this it cannot turn "Friday" into a due date.
+    lines: list[str] = [f"Today is {today:%A} {today.day} {today:%B %Y} ({today.isoformat()})."]
 
     voided: dict[str, set] = {}
     turns = [e for e in db.query_active("chat", "turn", since=now - TURN_WINDOW_S, limit=MAX_TURNS)]
@@ -72,8 +77,8 @@ def build_context(db, registry, now: float | None = None) -> str:
             items = ", ".join(f"{i['name']} {round(i['grams'])} g" for i in p.get("items", []))
             lines.append(f"- {p.get('meal', 'meal')}: {_clip(items)} (event_id {e['id']})")
 
-    if not lines:
-        return ""
+    if len(lines) == 1:
+        return lines[0]  # nothing to correct, so no correction hint
     lines.append(
         "If the user is correcting or changing something above (for example 'make that 3 rotis'), "
         "void the earlier entry by its event_id with void_event, then log the corrected one."
