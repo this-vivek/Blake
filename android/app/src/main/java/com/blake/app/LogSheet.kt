@@ -1,6 +1,10 @@
 package com.blake.app
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.net.Uri
+import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -38,6 +42,15 @@ fun LogSheet(vm: TodayViewModel, onDismiss: () -> Unit) {
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         if (ok) vm.chatImageUri = cameraUri
+    }
+
+    // Speech to text through the phone's own voice dialog: no microphone permission needed.
+    var voiceUnavailable by remember { mutableStateOf(false) }
+    val voice = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+        if (result.resultCode == Activity.RESULT_OK && !spoken.isNullOrBlank()) {
+            vm.chatInput = (vm.chatInput.trim() + " " + spoken).trim()
+        }
     }
 
     val canSend = !vm.chatLoading && (vm.chatInput.isNotBlank() || vm.chatImageUri != null)
@@ -142,6 +155,28 @@ fun LogSheet(vm: TodayViewModel, onDismiss: () -> Unit) {
                     text = "Gallery",
                     onClick = { pickImage.launch("image/*") },
                     modifier = Modifier.weight(1f),
+                )
+                SecondaryButton(
+                    text = "Voice",
+                    onClick = {
+                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                            .putExtra(RecognizerIntent.EXTRA_PROMPT, "What did you eat, lift or spend?")
+                        try {
+                            voiceUnavailable = false
+                            voice.launch(intent)
+                        } catch (e: ActivityNotFoundException) {
+                            voiceUnavailable = true
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (voiceUnavailable) {
+                Text(
+                    "Voice input isn't available on this phone (it needs the Google app).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
 

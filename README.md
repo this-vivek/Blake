@@ -18,6 +18,7 @@ Claude reads free text and photos and routes them to small, pluggable modules (m
 - **Timeline:** one expandable card per day with totals and filters. Each meal is one line (tap for the foods); all training in a day is one row (tap for the warm-up moves and each exercise as sets x reps). Undone entries are struck through.
 - **Unknown foods:** the Unmatched screen looks up per-100 g values (USDA FoodData Central first, otherwise a clearly labelled AI estimate), shows where they came from, and saves them only when you approve.
 - **Habits, weight and sleep:** Today cards with a one-tap +1 for water (8 glasses a day by default), a weigh-in sheet, and a sleep sheet (hours and optional 1 to 5 quality). Insights shows habit streaks and bars, weight with its 7-day moving average, and sleep hours.
+- **Voice, tasks and export:** a Voice button in Log anything (the phone's own speech dialog), tasks with due dates (overdue and due today show on Today and in a 9:00 reminder), and Settings can export everything as CSV or JSON through the share sheet.
 - **Reminders:** an optional notification for a meal you have not logged, at the time you usually eat it (or one you set), at most 3 a day, with a "Log usual" button that logs it without opening the app.
 - **Settings:** server connection, goals, music playlist link, and data resets (reset today, reset all logs).
 
@@ -68,6 +69,8 @@ All endpoints except `/health` need the `X-API-Key` header when `BLAKE_API_KEY` 
 | Meals | `POST /log/meal`, `POST /meals/{id}/edit`, `GET /suggest/meal`, `GET /suggest/meal/refresh`, `GET /meals/unmatched`, `POST /meals/propose` (look up values for an unknown food, stores nothing), `POST /meals/custom_food` (approve and save, with its source), `POST /meals/unmatched/resolve` |
 | Workouts | `POST /log/set`, `GET /suggest/workout`, `GET /suggest/next_set`, `GET /program/today`, `POST /program/complete` |
 | Spend and tasks | `POST /log/expense` (amount, category, note, optional lat/lon/accuracy), `POST /tasks/{id}/complete` |
+| Export | `GET /export?format=csv\|json` (undone entries left out, local dates) |
+| Tasks | `POST /tasks` (title, optional due date `YYYY-MM-DD`), `POST /tasks/{id}/complete` |
 | Insights | `GET /trends?metric=&days=` (kcal, protein, spend, workout_days, volume), `GET /insights?days=` (all trends plus streaks) |
 | Habits, weight, sleep | `POST /habits`, `POST /log/habit` (water is a built-in count habit), `POST /log/weight`, `POST /log/sleep`; their data is in `/today` and `/insights` |
 | Review | `GET /review/weekly` (last completed week; written on first request, then saved), `POST /review/weekly/refresh` (write it again) |

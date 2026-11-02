@@ -152,6 +152,9 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
         return postJson("$baseUrl/habits", body.toString())
     }
 
+    /** Your data as a file's text: format is "csv" or "json". */
+    fun export(format: String): Result<String> = get("$baseUrl/export?format=$format")
+
     fun proposeFood(name: String): Result<String> =
         postJson("$baseUrl/meals/propose", JSONObject().put("name", name).toString())
 

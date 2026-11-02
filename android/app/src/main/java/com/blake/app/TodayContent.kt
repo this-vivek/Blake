@@ -58,6 +58,7 @@ fun TodayScreen(
     var showWeight by remember { mutableStateOf(false) }
     var showSleep by remember { mutableStateOf(false) }
     var showNewHabit by remember { mutableStateOf(false) }
+    var showTask by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         vm.loadToday(context)
@@ -96,7 +97,7 @@ fun TodayScreen(
             TrainingCard(vm, context, onStartSession, onNavigateToWorkout)
             HabitsCard(vm, context, onNew = { showNewHabit = true })
             SpendCard(vm, onAdd = { showSpend = true })
-            TasksCard(vm, context)
+            TasksCard(vm, context, onAdd = { showTask = true })
             WeightCard(vm, onLog = { showWeight = true })
             SleepCard(vm, onLog = { showSleep = true })
         }
@@ -109,6 +110,7 @@ fun TodayScreen(
     if (showWeight) WeightSheet(vm, onDismiss = { showWeight = false })
     if (showSleep) SleepSheet(vm, onDismiss = { showSleep = false })
     if (showNewHabit) NewHabitSheet(vm, onDismiss = { showNewHabit = false })
+    if (showTask) TaskSheet(vm, onDismiss = { showTask = false })
 }
 
 private val HERO_EXPANDED = 376.dp
@@ -438,36 +440,115 @@ private fun SpendCard(vm: TodayViewModel, onAdd: () -> Unit) {
     }
 }
 
+private fun dueLabel(iso: String): String = try {
+    java.time.LocalDate.parse(iso).format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))
+} catch (e: Exception) {
+    iso
+}
+
 @Composable
-private fun TasksCard(vm: TodayViewModel, context: Context) {
+private fun TasksCard(vm: TodayViewModel, context: Context, onAdd: () -> Unit) {
     val openTasks = vm.todayJson?.optJSONArray("open_tasks")
     val visible = (0 until (openTasks?.length() ?: 0)).map { openTasks!!.getJSONObject(it) }
         .filterNot { it.optInt("id") in vm.completingTaskIds }
     BlakeCard {
-        SectionLabel("Tasks")
-        if (visible.isEmpty()) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("Tasks")
+            QuietButton("Add", onClick = onAdd)
+        }
+        if (visible.isEmpty() && vm.pendingTasks.isEmpty()) {
             Text("Nothing open", style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            visible.forEach { task ->
-                val id = task.optInt("id")
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .clickable { vm.completeTask(context, id) },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.md),
-                ) {
-                    Box(
-                        Modifier
-                            .size(22.dp)
-                            .border(BorderStroke(2.dp, MaterialTheme.colorScheme.outline), CircleShape)
-                    )
+        }
+        visible.forEach { task ->
+            val id = task.optInt("id")
+            val due = if (task.isNull("due")) null else task.optString("due")
+            val status = if (task.isNull("due_status")) null else task.optString("due_status")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .clickable { vm.completeTask(context, id) },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+            ) {
+                Box(
+                    Modifier
+                        .size(22.dp)
+                        .border(BorderStroke(2.dp, MaterialTheme.colorScheme.outline), CircleShape)
+                )
+                Column(modifier = Modifier.weight(1f)) {
                     Text(task.optString("title"), style = MaterialTheme.typography.bodyLarge)
+                    if (due != null) {
+                        Text(
+                            when (status) {
+                                "overdue" -> "Overdue \u00b7 ${dueLabel(due)}"
+                                "today" -> "Due today"
+                                "upcoming" -> "Due ${dueLabel(due)}"
+                                else -> due
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = when (status) {
+                                "overdue" -> MaterialTheme.colorScheme.error
+                                "today" -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
                 }
             }
         }
+        vm.pendingTasks.forEach { (title, due) ->
+            Column(Modifier.heightIn(min = 48.dp), verticalArrangement = Arrangement.Center) {
+                Text(title, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    (if (due != null) "Due ${dueLabel(due)} \u00b7 " else "") + "syncing...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** New task: a title and an optional due date. */
+@Composable
+private fun TaskSheet(vm: TodayViewModel, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var title by remember { mutableStateOf("") }
+    var due by remember { mutableStateOf<String?>(null) }
+    BlakeSheet(onDismiss) {
+        Text("New task", style = MaterialTheme.typography.titleLarge)
+        OutlinedTextField(
+            value = title, onValueChange = { title = it },
+            label = { Text("What needs doing?") }, singleLine = true,
+            shape = RoundedCornerShape(Radius.md), colors = sheetFieldColors(),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        SectionLabel("Due date (optional)")
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
+            SecondaryButton(
+                if (due == null) "Pick a date" else dueLabel(due!!),
+                onClick = {
+                    val now = java.util.Calendar.getInstance()
+                    android.app.DatePickerDialog(
+                        context,
+                        { _, y, m, d -> due = String.format(Locale.US, "%04d-%02d-%02d", y, m + 1, d) },
+                        now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH),
+                    ).show()
+                },
+                modifier = Modifier.weight(1f),
+            )
+            if (due != null) QuietButton("No date", onClick = { due = null })
+        }
+        Text(
+            "Tasks due today or overdue are included in your reminders at 9:00.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        PrimaryButton("Add task", enabled = title.isNotBlank(), onClick = {
+            vm.addTask(context, title, due)
+            onDismiss()
+        })
     }
 }
 

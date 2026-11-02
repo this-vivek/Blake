@@ -83,6 +83,18 @@ class TodayViewModel : ViewModel() {
     var pendingSleep by mutableStateOf<Pair<Double, Int?>?>(null)
     var habitError by mutableStateOf("")
 
+    // Tasks added on this phone that the server has not reported yet (title, due date or null).
+    var pendingTasks by mutableStateOf<List<Pair<String, String?>>>(emptyList())
+
+    fun addTask(context: Context, title: String, due: String?) {
+        pendingTasks = pendingTasks + (title.trim() to due)
+        viewModelScope.launch {
+            val body = JSONObject().put("title", title.trim())
+            if (due != null) body.put("due", due)
+            OutboxRepository.enqueue(context, "/tasks", "POST", body.toString(), "task")
+        }
+    }
+
     fun logHabit(context: Context, name: String, value: Double) {
         pendingHabit = pendingHabit + (name to ((pendingHabit[name] ?: 0.0) + value))
         viewModelScope.launch {
@@ -151,6 +163,7 @@ class TodayViewModel : ViewModel() {
         pendingHabit = emptyMap()
         pendingWeightKg = null
         pendingSleep = null
+        pendingTasks = emptyList()
     }
 
     fun loadProgram(context: Context) {
@@ -218,6 +231,7 @@ class TodayViewModel : ViewModel() {
                     pendingWeightKg = null
                     pendingSleep = null
                     pendingSpend = 0.0
+                    pendingTasks = emptyList()
                 }
                 WidgetRefresh.update(context)
             }

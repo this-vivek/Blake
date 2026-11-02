@@ -76,6 +76,40 @@ class SettingsViewModel : ViewModel() {
     }
 
     var dataStatus by mutableStateOf("")
+    var exporting by mutableStateOf(false)
+
+    /** Downloads your data and hands it to the phone's share sheet (save to Drive, email, ...). */
+    fun export(context: Context, format: String) {
+        exporting = true
+        dataStatus = "Preparing your export..."
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.export(format) }
+            exporting = false
+            result.fold(
+                onSuccess = { text ->
+                    try {
+                        val dir = java.io.File(context.cacheDir, "exports").apply { mkdirs() }
+                        val file = java.io.File(dir, "blake-export.$format")
+                        file.writeText(text, Charsets.UTF_8)
+                        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                        val send = android.content.Intent(android.content.Intent.ACTION_SEND)
+                            .setType(if (format == "csv") "text/csv" else "application/json")
+                            .putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        context.startActivity(
+                            android.content.Intent.createChooser(send, "Export Blake data")
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                        dataStatus = "Export ready"
+                    } catch (e: Exception) {
+                        dataStatus = "Couldn't share the export: ${e.message}"
+                    }
+                },
+                onFailure = { dataStatus = "Couldn't export: ${it.message}" },
+            )
+        }
+    }
 
     /** Resets on the server, then clears everything cached or queued on the phone so a
      * pending offline write can't bring the data straight back. */
@@ -383,10 +417,12 @@ private fun DataCard(vm: SettingsViewModel, context: Context, onDataReset: () ->
     BlakeCard {
         SectionLabel("Data")
         Text(
-            "Resets undo log entries; nothing is deleted. Goals, your program, custom foods and recipes are kept.",
+            "Export saves everything you logged. Resets undo log entries; nothing is deleted. Goals, your program, custom foods and recipes are kept.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        SecondaryButton("Export as CSV (spreadsheet)", enabled = !vm.exporting, onClick = { vm.export(context, "csv") })
+        SecondaryButton("Export as JSON (everything)", enabled = !vm.exporting, onClick = { vm.export(context, "json") })
         SecondaryButton("Reset today", onClick = { confirm = "day" })
         SecondaryButton("Reset all logs", onClick = { confirm = "all" })
         if (vm.dataStatus.isNotBlank()) {

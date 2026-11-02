@@ -136,6 +136,36 @@ object Reminders {
 
     fun notificationId(slot: String) = 2000 + SLOTS.indexOf(slot)
 
+    /** One notification for tasks due today or overdue. */
+    fun postTasks(c: Context, titles: List<String>) {
+        if (!canNotify(c)) return
+        NotificationManagerCompat.from(c).createNotificationChannel(
+            NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_DEFAULT)
+                .setName("Meal reminders").build()
+        )
+        val open = PendingIntent.getActivity(
+            c, 2100, Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val title = if (titles.size == 1) "1 task due" else "${titles.size} tasks due"
+        val notification = NotificationCompat.Builder(c, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_blake)
+            .setContentTitle(title)
+            .setContentText(titles.take(3).joinToString(", "))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(titles.joinToString("\n")))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        try {
+            NotificationManagerCompat.from(c).notify(2100, notification)
+        } catch (e: SecurityException) {
+            // permission revoked between the check and the call
+        }
+    }
+
+    const val TASKS_SLOT = "tasks"
+    const val TASKS_HOUR = 9
+
     fun post(c: Context, slot: String, usual: JSONObject?) {
         if (!canNotify(c)) return
         NotificationManagerCompat.from(c).createNotificationChannel(
@@ -205,6 +235,20 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
             if (minutes in target..(target + 120)) {
                 Reminders.post(c, slot, usualBySlot?.optJSONObject(slot))
                 Reminders.markSent(c, slot)
+            }
+        }
+
+        // Tasks due today or overdue: one reminder a day from 9:00, counted in the daily limit.
+        if (minutes >= Reminders.TASKS_HOUR * 60 && Reminders.sentToday(c) < Reminders.MAX_PER_DAY &&
+            !Reminders.alreadySent(c, Reminders.TASKS_SLOT)
+        ) {
+            val tasks = today.optJSONArray("open_tasks")
+            val due = (0 until (tasks?.length() ?: 0)).map { tasks!!.getJSONObject(it) }
+                .filter { !it.isNull("due_status") && it.optString("due_status") in setOf("today", "overdue") }
+                .map { it.optString("title") }
+            if (due.isNotEmpty()) {
+                Reminders.postTasks(c, due)
+                Reminders.markSent(c, Reminders.TASKS_SLOT)
             }
         }
         return Result.success()
