@@ -1,5 +1,6 @@
 import re
 import time
+from collections import Counter
 
 from app.core import clock
 from app.core.module import Module, Tool
@@ -277,6 +278,36 @@ def suggest_meal(args: dict, db) -> dict:
         for k in total:
             total[k] += m[k]
     return {"meal": meal, "items": items, "total": {k: round(v, 1) for k, v in total.items()}}
+
+
+USUAL_LOOKBACK_DAYS = 30
+
+
+def usual_combo(meal: str, db) -> dict:
+    """The most frequent exact combo (by food names) logged for this slot in the last 30
+    days — used for the Today screen's one-tap "Usual" chip (ROADMAP-NEXTGEN.md P3). Grams
+    come from that combo's most recent occurrence, not an average, so re-logging it matches
+    what was actually eaten rather than a drifting blend. Deterministic: ties break on the
+    combo's own name tuple, not insertion order, so results don't depend on dict iteration."""
+    since = time.time() - USUAL_LOOKBACK_DAYS * 24 * 3600
+    empty = {"meal": meal, "items": [], "total": {"kcal": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0},
+              "times_logged": 0}
+    events = [e for e in db.query_active("meals", "meal", since=since)
+              if e["payload"].get("meal") == meal and e["payload"].get("items")]
+    if not events:
+        return empty
+
+    counts: Counter[tuple[str, ...]] = Counter()
+    most_recent: dict[tuple[str, ...], dict] = {}
+    for e in events:  # newest first (query_active's ORDER BY ts DESC)
+        combo = tuple(sorted(item["name"] for item in e["payload"]["items"]))
+        counts[combo] += 1
+        most_recent.setdefault(combo, e["payload"])
+
+    best = max(counts, key=lambda c: (counts[c], c))
+    payload = most_recent[best]
+    return {"meal": meal, "items": payload["items"], "total": payload["total"],
+            "times_logged": counts[best]}
 
 
 module = Module(

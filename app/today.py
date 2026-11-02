@@ -4,9 +4,11 @@ Lives outside app/core/ (not a contract file) and outside modules/ (it reads acr
 rather than owning its own event kind) — a thin read-only aggregation layer.
 """
 from app.core import clock
+from modules.meals import usual_combo
 from modules.workouts import muscle_groups_for, prs_in
 
 MAX_NUDGES = 2  # ROADMAP-NEXTGEN.md P3: "at most 2 nudges"
+MEAL_SLOTS = ["breakfast", "lunch", "dinner", "snack"]
 
 
 def build_today(db, registry, now: float | None = None) -> dict:
@@ -44,6 +46,7 @@ def build_today(db, registry, now: float | None = None) -> dict:
             "kcal": {"actual": meals_today["kcal"], "goal": goals.get("kcal")},
             "protein_g": {"actual": meals_today["protein"], "goal": goals.get("protein_g")},
             "meal_slots_logged": meal_slots_logged,
+            "usual": {slot: usual_combo(slot, db) for slot in MEAL_SLOTS},
         },
         "training": {
             "sets_today": [

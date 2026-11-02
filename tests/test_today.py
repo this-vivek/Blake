@@ -44,6 +44,17 @@ def test_today_snapshot_with_fixed_clock(reg, db):
     assert any("protein" in n for n in out["nudges"])
 
 
+def test_today_nutrition_includes_usual_per_slot(reg, db):
+    reg.call("meals__log_meal", {"meal": "breakfast", "items": [{"name": "egg", "grams": 100}]}, db)
+    reg.call("meals__log_meal", {"meal": "breakfast", "items": [{"name": "egg", "grams": 100}]}, db)
+
+    out = build_today(db, reg)
+    usual = out["nutrition"]["usual"]
+    assert set(usual) == {"breakfast", "lunch", "dinner", "snack"}
+    assert usual["breakfast"]["times_logged"] == 2
+    assert usual["lunch"]["times_logged"] == 0
+
+
 def test_today_excludes_previous_calendar_day(reg, db):
     yesterday_9pm = datetime.datetime(2024, 3, 14, 21, 0, tzinfo=IST).timestamp()
     today_0032 = datetime.datetime(2024, 3, 15, 0, 32, tzinfo=IST).timestamp()

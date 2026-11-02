@@ -2,6 +2,7 @@ import pytest
 
 from app.core.db import Db
 from app.core.registry import Registry
+from modules.meals import usual_combo
 
 
 @pytest.fixture
@@ -58,3 +59,44 @@ def test_suggest_meal_avoids_recently_eaten(reg, db):
 
 def test_suggest_meal_rejects_unknown_meal_type(reg, db):
     assert "error" in reg.call("meals__suggest_meal", {"meal": "brunch"}, db)
+
+
+def test_usual_combo_empty_when_never_logged(db):
+    out = usual_combo("breakfast", db)
+    assert out == {"meal": "breakfast", "items": [], "total": {"kcal": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}, "times_logged": 0}
+
+
+def test_usual_combo_picks_most_frequent(reg, db):
+    reg.call("meals__log_meal", {"meal": "lunch", "items": [{"name": "rice", "grams": 150}, {"name": "dal", "grams": 150}]}, db)
+    reg.call("meals__log_meal", {"meal": "lunch", "items": [{"name": "rice", "grams": 150}, {"name": "dal", "grams": 150}]}, db)
+    reg.call("meals__log_meal", {"meal": "lunch", "items": [{"name": "chole", "grams": 200}]}, db)
+
+    out = usual_combo("lunch", db)
+    assert out["times_logged"] == 2
+    assert {i["name"] for i in out["items"]} == {"rice", "dal"}
+
+
+def test_usual_combo_uses_most_recent_occurrences_grams(reg, db):
+    reg.call("meals__log_meal", {"meal": "snack", "items": [{"name": "banana", "grams": 100}]}, db)
+    reg.call("meals__log_meal", {"meal": "snack", "items": [{"name": "banana", "grams": 150}]}, db)
+
+    out = usual_combo("snack", db)
+    assert out["times_logged"] == 2
+    assert out["items"][0]["grams"] == 150  # most recent occurrence, not an average
+
+
+def test_usual_combo_only_considers_matching_slot(reg, db):
+    reg.call("meals__log_meal", {"meal": "breakfast", "items": [{"name": "egg", "grams": 100}]}, db)
+    out = usual_combo("lunch", db)
+    assert out["times_logged"] == 0
+
+
+def test_usual_combo_ignores_meals_outside_30_days(reg, db):
+    import time
+    old_ts = time.time() - 40 * 24 * 3600
+    db.append("meals", "meal", {
+        "meal": "dinner", "items": [{"name": "roti", "grams": 80, "kcal": 1, "protein": 1, "carbs": 1, "fat": 1}],
+        "total": {"kcal": 1.0, "protein": 1.0, "carbs": 1.0, "fat": 1.0},
+    }, ts=old_ts)
+    out = usual_combo("dinner", db)
+    assert out["times_logged"] == 0
