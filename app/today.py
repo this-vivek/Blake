@@ -57,7 +57,11 @@ def build_today(db, registry, now: float | None = None) -> dict:
             "kcal": {"actual": meals_today["kcal"], "goal": goals.get("kcal")},
             "protein_g": {"actual": meals_today["protein"], "goal": goals.get("protein_g")},
             "meal_slots_logged": meal_slots_logged,
-            "usual": {slot: usual_combo(slot, db) for slot in MEAL_SLOTS},
+            "usual": {
+                # usual_hour (median local hour this slot is logged) drives the app's reminders
+                slot: {**usual_combo(slot, db), "usual_hour": usual_log_hour(slot, db)}
+                for slot in MEAL_SLOTS
+            },
         },
         "training": {
             "sets_today": [
