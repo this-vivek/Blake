@@ -5,6 +5,7 @@ import pytest
 from app.core.db import Db
 from app.core.registry import Registry
 from app.core.router import run_turn
+from modules.workouts import complete_program_day, today_program_day
 
 
 @pytest.fixture
@@ -164,6 +165,54 @@ def test_log_set_unknown_exercise_falls_back_to_default_met(reg, db):
     out = reg.call("workouts__log_set", {"exercise": "made up lift", "weight_kg": 60, "reps": 8}, db)
     # DEFAULT_MET 5.0, default bodyweight 70kg: same as chest's MET in this case
     assert out["kcal_burned"] == 4.6
+
+
+def test_default_program_has_no_rest_days(reg, db):
+    out = reg.call("workouts__get_program", {}, db)
+    assert all(d["type"] == "train" for d in out["days"])
+    assert out["days"][0]["muscle_group"] == "chest"
+
+
+def test_set_program_validates_day_shape(reg, db):
+    assert "error" in reg.call("workouts__set_program", {"days": [{"type": "bogus"}]}, db)
+    assert "error" in reg.call("workouts__set_program", {"days": [{"type": "train"}]}, db)
+    assert "error" in reg.call(
+        "workouts__set_program", {"days": [{"type": "train", "muscle_group": "wings"}]}, db
+    )
+
+
+def test_set_program_then_get_program_roundtrips(reg, db):
+    days = [{"type": "train", "muscle_group": "chest"}, {"type": "rest"}]
+    reg.call("workouts__set_program", {"days": days}, db)
+    assert reg.call("workouts__get_program", {}, db)["days"] == days
+
+
+def test_today_program_day_starts_at_index_zero(reg, db):
+    out = today_program_day(db)
+    assert out["index"] == 0
+    assert out["day"]["muscle_group"] == "chest"
+
+
+def test_complete_program_day_advances_the_pointer(reg, db):
+    complete_program_day({}, db)
+    out = today_program_day(db)
+    assert out["index"] == 1
+    assert out["day"]["muscle_group"] == "back"
+
+
+def test_today_program_day_wraps_around(reg, db):
+    reg.call("workouts__set_program", {"days": [
+        {"type": "train", "muscle_group": "chest"}, {"type": "rest"},
+    ]}, db)
+    complete_program_day({}, db)
+    complete_program_day({}, db)
+    out = today_program_day(db)
+    assert out["index"] == 0  # wrapped after completing both days of a 2-day program
+
+
+def test_skipping_a_day_does_not_advance_pointer(reg, db):
+    out = today_program_day(db)
+    assert out["index"] == 0  # no completion ever logged -> still on day 0
 
 
 class FakeClient:

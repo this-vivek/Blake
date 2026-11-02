@@ -258,13 +258,64 @@ def suggested_next(exercise: str, db) -> dict:
             "suggested_weight_kg": suggested_weight}
 
 
+DEFAULT_PROGRAM_CYCLE = ["chest", "back", "legs", "shoulders", "biceps", "triceps", "core"]
+VALID_MUSCLE_GROUPS = DEFAULT_PROGRAM_CYCLE + ["cardio"]
+
+
+def get_program(db) -> dict:
+    """Latest workouts__set_program payload, or a default one-day-per-muscle-group cycle
+    (built from the existing EXERCISES table, no rest days) if none has been set yet — "the
+    default is the current table" (ROADMAP-NEXTGEN.md P4)."""
+    events = db.query_active("workouts", "program", limit=1)
+    if events:
+        return events[0]["payload"]
+    return {"days": [{"type": "train", "muscle_group": g} for g in DEFAULT_PROGRAM_CYCLE]}
+
+
+def set_program(args: dict, db) -> dict:
+    days = args.get("days")
+    if not isinstance(days, list) or not days:
+        return {"error": "days must be a non-empty list"}
+    for d in days:
+        if not isinstance(d, dict) or d.get("type") not in ("train", "rest"):
+            return {"error": "each day needs type: 'train' or 'rest'"}
+        if d["type"] == "train" and d.get("muscle_group") not in VALID_MUSCLE_GROUPS:
+            return {"error": f"train days need muscle_group to be one of {VALID_MUSCLE_GROUPS}"}
+    cleaned = [
+        {"type": "rest"} if d["type"] == "rest" else {"type": "train", "muscle_group": d["muscle_group"]}
+        for d in days
+    ]
+    event_id = db.append("workouts", "program", {"days": cleaned})
+    return {"days": cleaned, "event_id": event_id}
+
+
+def today_program_day(db) -> dict:
+    """Today's day = the one after the last COMPLETED day (ROADMAP-NEXTGEN.md P4) — advances
+    only when a day is explicitly marked done (complete_program_day), never by calendar date,
+    so skipping entirely just resumes at the same point next time rather than falling behind
+    or double-advancing."""
+    days = get_program(db)["days"]
+    completed = len(db.query_active("workouts", "program_day_done", limit=10**6))
+    index = completed % len(days)
+    return {"index": index, "day": days[index], "total_days": len(days)}
+
+
+def complete_program_day(args: dict, db) -> dict:
+    today = today_program_day(db)
+    event_id = db.append("workouts", "program_day_done", {"day_index": today["index"]})
+    return {"completed_index": today["index"], "event_id": event_id}
+
+
 module = Module(
     name="workouts",
     version="0.1.0",
     system_prompt=(
         "Workouts: one log_set call per set (expand '60x8 for 3 sets' into 3 calls). "
         "Weights in kg. PR status comes from the tool. suggest_routine gives a fixed "
-        "exercise plan for a location and one or more comma-separated muscle groups."
+        "exercise plan for a location and one or more comma-separated muscle groups. "
+        "set_program replaces the user's whole weekly plan when they describe one "
+        "(e.g. 'make Thursday a rest day' means re-sending the full day list with that "
+        "change — always include every day, not just the one being edited)."
     ),
     tools=[
         Tool(
@@ -285,5 +336,16 @@ module = Module(
                                   "description": "comma-separated, e.g. 'chest,biceps'"}}},
             suggest_routine,
         ),
+        Tool(
+            "set_program",
+            "Replace the user's whole weekly training program (ordered list of days).",
+            {"type": "object", "required": ["days"], "properties": {
+                "days": {"type": "array", "items": {"type": "object", "properties": {
+                    "type": {"type": "string", "enum": ["train", "rest"]},
+                    "muscle_group": {"type": "string", "enum": VALID_MUSCLE_GROUPS}}}}}},
+            set_program,
+        ),
+        Tool("get_program", "Get the user's current weekly training program.",
+             {"type": "object", "properties": {}}, lambda args, db: get_program(db)),
     ],
 )

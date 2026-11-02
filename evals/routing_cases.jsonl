@@ -30,3 +30,8 @@
 {"text": "mark task id 7 as complete", "expect": ["tasks__complete_by_id"]}
 {"text": "complete task 3 from my list", "expect": ["tasks__complete_by_id"]}
 {"text": "finish task #12", "expect": ["tasks__complete_by_id"]}
+{"text": "make Thursday a rest day in my workout plan", "expect": ["workouts__set_program"]}
+{"text": "set my weekly split to chest, back, legs, rest, shoulders, arms, rest", "expect": ["workouts__set_program"]}
+{"text": "I want to train legs on Mondays and Thursdays, rest the rest of the week", "expect": ["workouts__set_program"]}
+{"text": "what's my current workout program?", "expect": ["workouts__get_program"]}
+{"text": "what days do I train according to my plan?", "expect": ["workouts__get_program"]}
