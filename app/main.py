@@ -5,6 +5,7 @@ import anthropic
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from app.chat_context import build_content, build_context
 from app.core.db import Db
 from app.core.registry import Registry
 from app.core.router import run_turn
@@ -47,12 +48,12 @@ async def chat(text: str = Form(""), image: UploadFile | None = File(None),
         if existing:
             return existing["payload"]
 
-    content: list[dict] = []
+    image_block = None
     if image:
         data = base64.b64encode(await image.read()).decode()
-        content.append({"type": "image", "source": {
-            "type": "base64", "media_type": image.content_type or "image/jpeg", "data": data}})
-    content.append({"type": "text", "text": text or "Log this."})
+        image_block = {"type": "image", "source": {
+            "type": "base64", "media_type": image.content_type or "image/jpeg", "data": data}}
+    content = build_content(text, image_block, build_context(db, registry))
     try:
         result = run_turn(client, db, registry, content)
     except Exception as e:  # noqa: BLE001 - never crash the request on a bad image/API error
