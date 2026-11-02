@@ -15,6 +15,7 @@ Claude reads free text and photos and routes them to small, pluggable modules (m
 - **Workout session:** starts from your weekly program, always with a warm-up. Large weight and reps steppers, suggested weight from progressive overload, rest timer, elapsed time and kcal burned. Sets are saved as you log them, so closing the app mid-session loses nothing. Starting a session can open YouTube Music.
 - **Spend:** amount, description, category, and where it was spent (location is optional).
 - **Timeline:** one expandable card per day with totals, filters by type, struck-through undone entries.
+- **Unknown foods:** the Unmatched screen looks up per-100 g values (USDA FoodData Central first, otherwise a clearly labelled AI estimate), shows where they came from, and saves them only when you approve.
 - **Settings:** server connection, goals, music playlist link, and data resets (reset today, reset all logs).
 
 ## Repository layout
@@ -50,6 +51,7 @@ make eval           # needs ANTHROPIC_API_KEY, hits the real API
 | `BLAKE_DB_PATH` | SQLite file (default `blake.db`) |
 | `DATABASE_URL` | Postgres URL; when set it replaces SQLite (e.g. Neon) |
 | `BLAKE_TZ` | Timezone for "today" (default `Asia/Kolkata`) |
+| `USDA_API_KEY` | Free key for USDA FoodData Central lookups ([sign up](https://fdc.nal.usda.gov/api-key-signup.html)); without it the shared `DEMO_KEY` is used and is rate-limited |
 | `BLAKE_FAST_MODEL` / `BLAKE_SMART_MODEL` | Model overrides |
 
 ## API
@@ -60,7 +62,7 @@ All endpoints except `/health` need the `X-API-Key` header when `BLAKE_API_KEY` 
 | --- | --- |
 | Health, chat | `GET /health`, `POST /chat` (text and optional image) |
 | Today | `GET /today`, `GET /summary`, `GET /history?module=` |
-| Meals | `POST /log/meal`, `POST /meals/{id}/edit`, `GET /suggest/meal`, `GET /suggest/meal/refresh`, `GET /meals/unmatched`, `POST /meals/custom_food`, `POST /meals/unmatched/resolve` |
+| Meals | `POST /log/meal`, `POST /meals/{id}/edit`, `GET /suggest/meal`, `GET /suggest/meal/refresh`, `GET /meals/unmatched`, `POST /meals/propose` (look up values for an unknown food, stores nothing), `POST /meals/custom_food` (approve and save, with its source), `POST /meals/unmatched/resolve` |
 | Workouts | `POST /log/set`, `GET /suggest/workout`, `GET /suggest/next_set`, `GET /program/today`, `POST /program/complete` |
 | Spend and tasks | `POST /log/expense` (amount, category, note, optional lat/lon/accuracy), `POST /tasks/{id}/complete` |
 | Goals | `GET /goals`, `PUT /goals` |

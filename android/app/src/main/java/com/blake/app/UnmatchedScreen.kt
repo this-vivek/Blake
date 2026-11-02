@@ -3,16 +3,19 @@ package com.blake.app
 import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.blake.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -23,16 +26,21 @@ data class UnmatchedItem(val id: Int, val name: String, val grams: Double)
 class UnmatchedViewModel : ViewModel() {
     var items by mutableStateOf<List<UnmatchedItem>>(emptyList())
     var loading by mutableStateOf(false)
-    // Per-item UI state, keyed by unmatched id — which row is expanded and in what mode.
     var expandedId by mutableStateOf<Int?>(null)
-    var creatingNewFood by mutableStateOf(false)
+    var mapMode by mutableStateOf(false)
     var mapToText by mutableStateOf("")
     var newFoodName by mutableStateOf("")
-    var newFoodKcal by mutableStateOf("")
-    var newFoodProtein by mutableStateOf("")
-    var newFoodCarbs by mutableStateOf("")
-    var newFoodFat by mutableStateOf("")
+    var kcal by mutableStateOf("")
+    var protein by mutableStateOf("")
+    var carbs by mutableStateOf("")
+    var fat by mutableStateOf("")
     var statusText by mutableStateOf("")
+
+    // Lookup state: where the numbers in the fields came from, and whether you changed them.
+    var lookingUp by mutableStateOf(false)
+    var proposalSource by mutableStateOf("")
+    var proposalFromModel by mutableStateOf(false)
+    var fieldsEdited by mutableStateOf(false)
 
     fun load(context: Context) {
         loading = true
@@ -50,17 +58,64 @@ class UnmatchedViewModel : ViewModel() {
         }
     }
 
-    fun expand(item: UnmatchedItem) {
+    /** Opening an item looks its values up straight away; nothing is saved until you approve. */
+    fun expand(context: Context, item: UnmatchedItem) {
         expandedId = item.id
-        creatingNewFood = false
+        mapMode = false
         mapToText = ""
         newFoodName = item.name
-        newFoodKcal = ""; newFoodProtein = ""; newFoodCarbs = ""; newFoodFat = ""
+        clearProposal()
         statusText = ""
+        lookUp(context)
     }
 
     fun collapse() {
         expandedId = null
+    }
+
+    private fun clearProposal() {
+        kcal = ""; protein = ""; carbs = ""; fat = ""
+        proposalSource = ""
+        proposalFromModel = false
+        fieldsEdited = false
+    }
+
+    fun lookUp(context: Context) {
+        val name = newFoodName.trim().lowercase()
+        if (name.isBlank()) return
+        lookingUp = true
+        statusText = ""
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.proposeFood(name) }
+            lookingUp = false
+            result.fold(
+                onSuccess = { json ->
+                    val obj = JSONObject(json)
+                    val proposal = obj.optJSONObject("proposal")
+                    if (proposal == null) {
+                        statusText = obj.optString("error", "No values found. Enter them by hand.")
+                        return@fold
+                    }
+                    val per100 = proposal.optJSONObject("per100") ?: return@fold
+                    kcal = trimmed(per100.optDouble("kcal"))
+                    protein = trimmed(per100.optDouble("protein"))
+                    carbs = trimmed(per100.optDouble("carbs"))
+                    fat = trimmed(per100.optDouble("fat"))
+                    proposalSource = proposal.optString("source")
+                    proposalFromModel = proposal.optString("origin") == "model"
+                    fieldsEdited = false
+                },
+                onFailure = { statusText = "Couldn't look it up: ${it.message}. Enter the values by hand." },
+            )
+        }
+    }
+
+    private fun trimmed(v: Double): String =
+        if (v == v.toInt().toDouble()) v.toInt().toString() else v.toString()
+
+    fun markEdited() {
+        if (proposalSource.isNotEmpty()) fieldsEdited = true
     }
 
     fun mapToExisting(context: Context, item: UnmatchedItem) {
@@ -80,35 +135,37 @@ class UnmatchedViewModel : ViewModel() {
         }
     }
 
-    fun addAsNewFood(context: Context, item: UnmatchedItem) {
-        val kcal = newFoodKcal.toDoubleOrNull()
-        val protein = newFoodProtein.toDoubleOrNull()
-        val carbs = newFoodCarbs.toDoubleOrNull()
-        val fat = newFoodFat.toDoubleOrNull()
+    /** The approval step: saves the food with where its numbers came from. */
+    fun approveAndLog(context: Context, item: UnmatchedItem) {
+        val k = kcal.toDoubleOrNull()
+        val p = protein.toDoubleOrNull()
+        val c = carbs.toDoubleOrNull()
+        val f = fat.toDoubleOrNull()
         val name = newFoodName.trim().lowercase()
-        if (name.isBlank() || kcal == null || protein == null || carbs == null || fat == null) {
-            statusText = "Fill in name and all four macro fields"
+        if (name.isBlank() || k == null || p == null || c == null || f == null) {
+            statusText = "Fill in the name and all four values"
             return
+        }
+        val source = when {
+            proposalSource.isEmpty() -> "user"
+            fieldsEdited -> "User-edited, started from: $proposalSource"
+            else -> proposalSource
         }
         val api = Prefs.apiFor(context)
         viewModelScope.launch {
             val addResult = withContext(Dispatchers.IO) {
-                api.addCustomFood(name, mapOf("kcal" to kcal, "protein" to protein, "carbs" to carbs, "fat" to fat))
+                api.addCustomFood(name, mapOf("kcal" to k, "protein" to p, "carbs" to c, "fat" to f), source)
             }
             addResult.fold(
                 onSuccess = {
-                    viewModelScope.launch {
-                        val resolveResult = withContext(Dispatchers.IO) {
-                            api.resolveUnmatched(item.id, name, item.grams)
-                        }
-                        resolveResult.fold(
-                            onSuccess = {
-                                items = items.filterNot { it.id == item.id }
-                                expandedId = null
-                            },
-                            onFailure = { statusText = "Added, but couldn't log it: ${it.message}" }
-                        )
-                    }
+                    val resolveResult = withContext(Dispatchers.IO) { api.resolveUnmatched(item.id, name, item.grams) }
+                    resolveResult.fold(
+                        onSuccess = {
+                            items = items.filterNot { it.id == item.id }
+                            expandedId = null
+                        },
+                        onFailure = { statusText = "Food saved, but couldn't log it: ${it.message}" }
+                    )
                 },
                 onFailure = { statusText = "Error: ${it.message}" }
             )
@@ -122,103 +179,124 @@ fun UnmatchedScreen(onBack: () -> Unit, vm: UnmatchedViewModel = viewModel()) {
     LaunchedEffect(Unit) { vm.load(context) }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = Spacing.lg)
+            .padding(top = Spacing.lg, bottom = Spacing.xl),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("← Back") }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            QuietButton("Back", onClick = onBack)
+            Text("Unmatched items", style = MaterialTheme.typography.titleLarge)
         }
-        Text("Unmatched items", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Foods Blake couldn't recognize. Map each to a real food, or add it as a new one.",
+            "Foods Blake didn't recognise. Open one to look up its values, check them, and add it. Nothing is saved until you approve.",
             style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        if (vm.loading) {
-            Text("Loading...")
-        } else if (vm.items.isEmpty()) {
-            Text("Nothing unmatched right now.", style = MaterialTheme.typography.bodyMedium)
-        } else {
-            vm.items.forEach { item -> UnmatchedRow(item, vm, context) }
+        when {
+            vm.loading -> Text("Loading...", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            vm.items.isEmpty() -> Text("Nothing unmatched right now.", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            else -> vm.items.forEach { item -> UnmatchedRow(item, vm, context) }
         }
     }
 }
 
 @Composable
 private fun UnmatchedRow(item: UnmatchedItem, vm: UnmatchedViewModel, context: Context) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("${item.name} (${item.grams.toInt()}g)", style = MaterialTheme.typography.bodyLarge)
-                TextButton(onClick = {
-                    if (vm.expandedId == item.id) vm.collapse() else vm.expand(item)
-                }) {
-                    Text(if (vm.expandedId == item.id) "Close" else "Resolve")
-                }
+    val open = vm.expandedId == item.id
+    BlakeCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(item.name.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.titleMedium)
+                Text("${item.grams.toInt()} g logged", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            QuietButton(if (open) "Close" else "Resolve", onClick = {
+                if (open) vm.collapse() else vm.expand(context, item)
+            })
+        }
+
+        if (open) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                BlakeChip("Look up & add", selected = !vm.mapMode, onClick = { vm.mapMode = false })
+                BlakeChip("Map to existing", selected = vm.mapMode, onClick = { vm.mapMode = true })
             }
 
-            if (vm.expandedId == item.id) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    FilterChip(
-                        selected = !vm.creatingNewFood,
-                        onClick = { vm.creatingNewFood = false },
-                        label = { Text("Map to existing") },
-                    )
-                    FilterChip(
-                        selected = vm.creatingNewFood,
-                        onClick = { vm.creatingNewFood = true },
-                        label = { Text("Add as new food") },
-                    )
-                }
+            if (vm.mapMode) {
+                OutlinedTextField(
+                    value = vm.mapToText,
+                    onValueChange = { vm.mapToText = it },
+                    label = { Text("Existing food name") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(Radius.md),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                PrimaryButton("Save", enabled = vm.mapToText.isNotBlank(), onClick = { vm.mapToExisting(context, item) })
+            } else {
+                LookUpAndAdd(item, vm, context)
+            }
 
-                if (!vm.creatingNewFood) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = vm.mapToText,
-                            onValueChange = { vm.mapToText = it },
-                            label = { Text("Existing food name") },
-                            modifier = Modifier.weight(1f),
-                        )
-                        Button(onClick = { vm.mapToExisting(context, item) }) { Text("Save") }
-                    }
-                } else {
-                    OutlinedTextField(
-                        value = vm.newFoodName, onValueChange = { vm.newFoodName = it },
-                        label = { Text("Food name") }, modifier = Modifier.fillMaxWidth(),
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = vm.newFoodKcal, onValueChange = { vm.newFoodKcal = it },
-                            label = { Text("kcal/100g") }, modifier = Modifier.weight(1f),
-                        )
-                        OutlinedTextField(
-                            value = vm.newFoodProtein, onValueChange = { vm.newFoodProtein = it },
-                            label = { Text("protein") }, modifier = Modifier.weight(1f),
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = vm.newFoodCarbs, onValueChange = { vm.newFoodCarbs = it },
-                            label = { Text("carbs") }, modifier = Modifier.weight(1f),
-                        )
-                        OutlinedTextField(
-                            value = vm.newFoodFat, onValueChange = { vm.newFoodFat = it },
-                            label = { Text("fat") }, modifier = Modifier.weight(1f),
-                        )
-                    }
-                    Button(onClick = { vm.addAsNewFood(context, item) }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Add & log")
-                    }
-                }
-
-                if (vm.statusText.isNotBlank()) {
-                    Text(vm.statusText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                }
+            if (vm.statusText.isNotBlank()) {
+                Text(vm.statusText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
         }
     }
+}
+
+@Composable
+private fun LookUpAndAdd(item: UnmatchedItem, vm: UnmatchedViewModel, context: Context) {
+    OutlinedTextField(
+        value = vm.newFoodName,
+        onValueChange = { vm.newFoodName = it },
+        label = { Text("Food name") },
+        singleLine = true,
+        shape = RoundedCornerShape(Radius.md),
+        modifier = Modifier.fillMaxWidth(),
+    )
+
+    when {
+        vm.lookingUp -> Text("Looking up...", style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        vm.proposalSource.isNotEmpty() -> Text(
+            (if (vm.fieldsEdited) "Edited by you. Started from: " else "Proposed from: ") + vm.proposalSource,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (vm.proposalFromModel) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
+    SectionLabel("Per 100 g")
+    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        NutrientField("kcal", vm.kcal, { vm.kcal = it; vm.markEdited() }, Modifier.weight(1f))
+        NutrientField("protein", vm.protein, { vm.protein = it; vm.markEdited() }, Modifier.weight(1f))
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        NutrientField("carbs", vm.carbs, { vm.carbs = it; vm.markEdited() }, Modifier.weight(1f))
+        NutrientField("fat", vm.fat, { vm.fat = it; vm.markEdited() }, Modifier.weight(1f))
+    }
+
+    PrimaryButton("Approve & log", enabled = !vm.lookingUp, onClick = { vm.approveAndLog(context, item) })
+    QuietButton("Look up again", enabled = !vm.lookingUp, onClick = { vm.lookUp(context) })
+}
+
+@Composable
+private fun NutrientField(label: String, value: String, onChange: (String) -> Unit, modifier: Modifier) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        label = { Text(label) },
+        singleLine = true,
+        shape = RoundedCornerShape(Radius.md),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = modifier,
+    )
 }

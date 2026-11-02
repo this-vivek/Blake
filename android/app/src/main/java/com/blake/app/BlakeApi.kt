@@ -128,10 +128,15 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
 
     fun unmatchedItems(): Result<String> = get("$baseUrl/meals/unmatched")
 
-    fun addCustomFood(name: String, per100: Map<String, Double>): Result<String> {
-        val body = JSONObject().put("name", name).put("per100", JSONObject(per100)).toString()
+    fun addCustomFood(name: String, per100: Map<String, Double>, source: String = "user"): Result<String> {
+        val body = JSONObject().put("name", name).put("per100", JSONObject(per100)).put("source", source).toString()
         return postJson("$baseUrl/meals/custom_food", body)
     }
+
+    /** Looks up per-100 g values for an unknown food (USDA, else a labelled AI estimate).
+     * Stores nothing; approving is addCustomFood. */
+    fun proposeFood(name: String): Result<String> =
+        postJson("$baseUrl/meals/propose", JSONObject().put("name", name).toString())
 
     fun resolveUnmatched(unmatchedId: Int, mappedName: String, grams: Double? = null): Result<String> {
         val body = JSONObject().put("unmatched_id", unmatchedId).put("mapped_name", mappedName).apply {
