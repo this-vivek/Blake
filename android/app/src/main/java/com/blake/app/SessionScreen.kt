@@ -99,7 +99,7 @@ class SessionViewModel : ViewModel() {
         val ex = currentExercise ?: return
         setsLoggedForCurrent = 0
         statusText = ""
-        weightInput = ""
+        weightInput = "0"
         suggestionText = ""
         repsInput = targetReps(ex.reps).coerceAtLeast(1)
     }
@@ -157,9 +157,10 @@ class SessionViewModel : ViewModel() {
      * so closing the app mid-session loses nothing. */
     fun logSet(context: Context) {
         val ex = currentExercise ?: return
-        val weight = weightInput.toDoubleOrNull()
+        // Blank means bodyweight (0 kg), same as the stepper showing 0.
+        val weight = if (weightInput.isBlank()) 0.0 else weightInput.toDoubleOrNull()
         if (weight == null || weight < 0) {
-            statusText = "Enter a weight (0 is fine for bodyweight moves)"
+            statusText = "Enter a valid weight"
             return
         }
         val reps = repsInput
@@ -329,6 +330,17 @@ fun SessionScreen(onFinish: () -> Unit, vm: SessionViewModel = viewModel()) {
 
         if (vm.isWarmup) {
             PrimaryButton("Next", onClick = { vm.nextExercise(context) })
+        } else if (vm.setsLoggedForCurrent >= ex.sets) {
+            // Every planned set is saved: the main action becomes moving on.
+            PrimaryButton(
+                text = if (isLast) "Finish session" else "Next exercise",
+                onClick = { vm.nextExercise(context) },
+            )
+            QuietButton(
+                text = "Log an extra set",
+                onClick = { vm.logSet(context) },
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
         } else {
             PrimaryButton("Log set ${vm.setsLoggedForCurrent + 1}", onClick = { vm.logSet(context) })
             QuietButton(
@@ -404,6 +416,25 @@ private fun WarmupBody(vm: SessionViewModel, ex: ExerciseItem) {
             left--
         }
     }
+    val imageUrl = exerciseImageUrl(ex.name)
+    Surface(
+        modifier = Modifier.fillMaxWidth().height(200.dp),
+        shape = RoundedCornerShape(Radius.lg),
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            if (imageUrl != null) {
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = ex.name,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                NoPhoto("Warm-up")
+            }
+        }
+    }
     BlakeCard {
         SectionLabel("Warm-up")
         Text(ex.name, style = MaterialTheme.typography.displaySmall)
@@ -420,7 +451,7 @@ private fun WarmupBody(vm: SessionViewModel, ex: ExerciseItem) {
 
 @Composable
 private fun ExerciseBody(vm: SessionViewModel, ex: ExerciseItem) {
-    val imageUrl = EXERCISE_IMAGES[ex.name]
+    val imageUrl = exerciseImageUrl(ex.name)
     Surface(
         modifier = Modifier.fillMaxWidth().height(236.dp),
         shape = RoundedCornerShape(Radius.lg),
@@ -435,11 +466,7 @@ private fun ExerciseBody(vm: SessionViewModel, ex: ExerciseItem) {
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                Text(
-                    ex.group.replaceFirstChar { it.uppercase() },
-                    style = MaterialTheme.typography.displaySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                NoPhoto(ex.group)
             }
         }
     }
@@ -488,6 +515,24 @@ private fun ExerciseBody(vm: SessionViewModel, ex: ExerciseItem) {
     if (vm.statusText.isNotBlank()) {
         Text(vm.statusText, style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Neutral stand-in when the photo set has no trustworthy image for an exercise. */
+@Composable
+private fun NoPhoto(label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        Icon(
+            BlakeIcons.Dumbbell,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(56.dp),
+        )
+        Text(
+            label.replaceFirstChar { it.uppercase() },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

@@ -58,11 +58,23 @@ val EXERCISE_IMAGES: Map<String, String> = mapOf(
     "Stair Climber" to "$BASE/Stairmaster/0.jpg",
     "Cycling" to "$BASE/Bicycling_Stationary/0.jpg",
     "Mountain Climbers" to "$BASE/Mountain_Climbers/0.jpg",
-    // No good match in the dataset — these fall back to the muscle-group emoji icon:
+    "Close-Grip Push-ups" to "$BASE/Push-Ups_-_Close_Triceps_Position/0.jpg",
+    // Warm-up moves (see WarmUp.kt)
+    "Arm circles" to "$BASE/Arm_Circles/0.jpg",
+    "Hip circles" to "$BASE/Standing_Hip_Circles/0.jpg",
+    "Glute bridges" to "$BASE/Butt_Lift_Bridge/0.jpg",
+    "Cat-cow" to "$BASE/Cat_Stretch/0.jpg",
+    // No good match in the dataset — these show a neutral placeholder instead of a wrong photo:
     // Reverse Snow Angels, Wall Sit, Pike Push-ups, Plank to Downward Dog,
     // Resistance Band Curl, Towel Curl (isometric), Backpack Curl,
     // Jumping Jacks, Burpees, High Knees
 )
+
+private val IMAGES_BY_LOWERCASE_NAME: Map<String, String> =
+    EXERCISE_IMAGES.mapKeys { it.key.lowercase() }
+
+/** Photo for an exercise or warm-up move, matched ignoring case; null when there is none. */
+fun exerciseImageUrl(name: String): String? = IMAGES_BY_LOWERCASE_NAME[name.lowercase()]
 
 val MUSCLE_GROUP_EMOJI: Map<String, String> = mapOf(
     "chest" to "🏋️", "back" to "🦾", "legs" to "🦵", "shoulders" to "🤸",

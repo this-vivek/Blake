@@ -256,7 +256,7 @@ private fun ExerciseCard(ex: ExerciseItem) {
             horizontalArrangement = Arrangement.spacedBy(Spacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val imageUrl = EXERCISE_IMAGES[ex.name]
+            val imageUrl = exerciseImageUrl(ex.name)
             if (imageUrl != null) {
                 AsyncImage(
                     model = imageUrl,
