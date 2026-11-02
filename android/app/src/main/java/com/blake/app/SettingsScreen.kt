@@ -258,7 +258,7 @@ private fun MusicCard(context: Context) {
             modifier = Modifier.fillMaxWidth(),
         )
         Text(
-            "Yes opens the link in YouTube Music. Apps cannot press play inside it for you.",
+            "Opens the link in YouTube Music, then sends a play command. That starts it only if YouTube Music was your last player; otherwise tap play.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

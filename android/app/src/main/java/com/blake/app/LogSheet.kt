@@ -5,6 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -47,12 +49,16 @@ fun LogSheet(vm: TodayViewModel, onDismiss: () -> Unit) {
         scrimColor = MaterialTheme.blake.scrim,
         shape = RoundedCornerShape(topStart = Radius.lg, topEnd = Radius.lg),
     ) {
+        // Fixed height: if the content height changed (e.g. the result card disappearing on
+        // Edit), the sheet re-settled and could dismiss itself. The content scrolls instead.
         Column(
             modifier = Modifier
-                .padding(horizontal = Spacing.lg)
-                .padding(bottom = Spacing.xl)
+                .fillMaxHeight(0.9f)
                 .navigationBarsPadding()
-                .imePadding(),
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = Spacing.lg)
+                .padding(bottom = Spacing.xl),
             verticalArrangement = Arrangement.spacedBy(Spacing.lg),
         ) {
             Row(

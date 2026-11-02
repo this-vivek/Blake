@@ -165,6 +165,37 @@ def test_log_meal_unknown_unit_for_food_is_unmatched_not_guessed(reg, db):
     assert out["unknown_items"] == ["roti"]
 
 
+def test_log_meal_food_without_amount_logs_an_assumed_serving(reg, db):
+    # "2 roti with spinach": spinach is in the table, the amount was just not said.
+    out = reg.call("meals__log_meal", {"meal": "breakfast", "items": [
+        {"name": "roti", "qty": 2, "unit": "piece"}, {"name": "spinach"},
+        {"name": "egg", "qty": 2, "unit": "piece"}]}, db)
+    assert out["unknown_items"] == []
+    by_name = {i["name"]: i for i in out["logged"]}
+    assert by_name["spinach"]["grams"] == 100.0
+    assert out["assumed_quantity"] == [{
+        "name": "spinach", "grams": 100.0, "note": "no amount given for spinach; assumed a 100 g serving"}]
+    assert db.query_active("meals", "unmatched") == []
+
+
+def test_log_meal_cup_of_spinach_uses_the_table_not_an_assumption(reg, db):
+    out = reg.call("meals__log_meal", {"items": [{"name": "spinach", "qty": 1, "unit": "cup"}]}, db)
+    assert out["logged"][0]["grams"] == 180.0
+    assert "assumed_quantity" not in out
+
+
+def test_log_meal_unit_without_own_weight_uses_generic_fallback_and_says_so(reg, db):
+    out = reg.call("meals__log_meal", {"items": [{"name": "paneer", "qty": 2, "unit": "katori"}]}, db)
+    assert out["logged"][0]["grams"] == 240.0
+    assert out["assumed_quantity"][0]["name"] == "paneer"
+
+
+def test_log_meal_truly_unknown_food_still_unknown(reg, db):
+    out = reg.call("meals__log_meal", {"items": [{"name": "zzzxyz"}]}, db)
+    assert out["unknown_items"] == ["zzzxyz"]
+    assert len(db.query_active("meals", "unmatched")) == 1
+
+
 def test_log_meal_explicit_grams_still_works_alongside_qty_unit(reg, db):
     out = reg.call("meals__log_meal", {"items": [{"name": "egg", "grams": 100}]}, db)
     assert out["logged"][0]["grams"] == 100.0

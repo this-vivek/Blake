@@ -219,7 +219,7 @@ fun BlakeApp() {
         AlertDialog(
             onDismissRequest = { pendingStart = null; go() },
             title = { Text("Play music?") },
-            text = { Text("Open YouTube Music for your workout. Blake keeps your session running while you are away.") },
+            text = { Text("Blake opens YouTube Music and tries to press play. Your session keeps running; come back to Blake when it starts.") },
             confirmButton = {
                 TextButton(onClick = {
                     pendingStart = null

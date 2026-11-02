@@ -83,7 +83,7 @@ The look comes from the Blake Design System: near-black surfaces, one soft-gold 
 ## Known limits
 
 - Some home exercises (burpees, jumping jacks, high knees, pike push-ups, wall sit and a few others) have no photo yet and show a placeholder.
-- Apps cannot press play inside YouTube Music; the app opens it (or your playlist link) and you start playback.
+- Apps cannot start playback inside YouTube Music directly. The app opens it (or your playlist link) and sends a play command, which works when YouTube Music was your most recent player; otherwise tap play.
 - Reset actions undo log entries; they keep goals, the program, custom foods and recipes.
 - Single user: one shared API key and one database.
 - Screenshot tests run in CI but do not yet produce viewable images.

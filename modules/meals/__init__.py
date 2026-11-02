@@ -191,7 +191,50 @@ HOUSEHOLD_UNITS: dict[tuple[str, str], float] = {
     ("honey", "tbsp"): 21.0, ("honey", "tsp"): 7.0,
     ("bread", "slice"): 30.0,
     ("cheese", "slice"): 20.0,
+    # Vegetables eaten as a side (cooked weights unless noted)
+    ("spinach", "katori"): 100.0, ("spinach", "bowl"): 150.0, ("spinach", "cup"): 180.0,
+    ("spinach", "handful"): 30.0,
+    ("beans", "katori"): 100.0, ("beans", "bowl"): 150.0, ("beans", "cup"): 170.0,
+    ("potato", "piece"): 150.0, ("sweet potato", "piece"): 150.0,
+    ("tomato", "piece"): 120.0, ("onion", "piece"): 110.0, ("carrot", "piece"): 60.0,
+    ("cucumber", "piece"): 200.0,
 }
+
+# When someone says "with spinach" and gives no amount, log a standard serving instead of
+# refusing: a plain editable default (the result card lets you change the grams), always
+# flagged as assumed so it is never mistaken for a measurement.
+DEFAULT_SERVING_G: dict[str, float] = {
+    "spinach": 100.0, "beans": 100.0, "tomato": 80.0, "onion": 50.0, "carrot": 60.0,
+    "cucumber": 80.0, "dal": 150.0, "sambar": 150.0, "rice": 150.0, "curd": 100.0,
+    "roti": 40.0, "chapati": 40.0, "egg": 50.0, "milk": 200.0, "paneer": 80.0,
+}
+GENERIC_DEFAULT_SERVING_G = 100.0
+
+# Unit weights used only when a food has no entry of its own in HOUSEHOLD_UNITS.
+FALLBACK_UNIT_G = {
+    "katori": 120.0, "bowl": 180.0, "cup": 150.0, "glass": 200.0, "tbsp": 15.0, "tsp": 5.0,
+    "handful": 30.0, "slice": 30.0, "piece": 80.0, "serving": 100.0, "plate": 250.0,
+}
+
+
+def _assumed_grams(name: str, item: dict) -> tuple[float, str] | None:
+    """Grams for an item whose quantity could not be converted exactly, plus a note saying
+    what was assumed. Only called for foods that matched the table. Returns None when a unit
+    was given that makes no sense for a food we do have unit weights for ("2 slices of
+    roti"): that stays unknown rather than guessed."""
+    unit = str(item.get("unit") or "").strip().lower()
+    if unit:
+        food_has_own_units = any(food == name for food, _ in HOUSEHOLD_UNITS)
+        if food_has_own_units or unit not in FALLBACK_UNIT_G:
+            return None
+        try:
+            qty = float(item["qty"]) if item.get("qty") is not None else 1.0
+        except (TypeError, ValueError):
+            return None
+        grams = round(qty * FALLBACK_UNIT_G[unit], 1)
+        return grams, f"no exact weight for {name} per {unit}; assumed {FALLBACK_UNIT_G[unit]:g} g per {unit}"
+    grams = DEFAULT_SERVING_G.get(name, GENERIC_DEFAULT_SERVING_G)
+    return grams, f"no amount given for {name}; assumed a {grams:g} g serving"
 
 
 def _grams_for(name: str, item: dict) -> float | None:
@@ -317,7 +360,7 @@ def log_meal(args: dict, db) -> dict:
             return {"logged": existing["payload"]["items"], "total": existing["payload"]["total"],
                     "unknown_items": [], "duplicate": True, "event_id": existing["id"]}
 
-    items, unknown = [], []
+    items, unknown, assumed = [], [], []
     total = {"kcal": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
     for it in items_in:
         raw_name = str(it.get("name", "")).strip().lower()
@@ -325,6 +368,11 @@ def log_meal(args: dict, db) -> dict:
         # Unit conversion depends on the matched food (a "piece" means different things for
         # roti vs. banana), so it happens after matching, against the canonical name.
         grams = _grams_for(matched[0], it) if matched else None
+        assumed_note = None
+        if matched and grams is None:
+            guess = _assumed_grams(matched[0], it)
+            if guess:
+                grams, assumed_note = guess
         if not matched or grams is None or grams <= 0:
             unknown.append(raw_name or "?")
             if raw_name:
@@ -337,10 +385,14 @@ def log_meal(args: dict, db) -> dict:
         name, per100 = matched
         m = dict(zip(("kcal", "protein", "carbs", "fat"), (v * grams / 100 for v in per100)))
         items.append({"name": name, "grams": grams, **{k: round(v, 1) for k, v in m.items()}})
+        if assumed_note:
+            assumed.append({"name": name, "grams": grams, "note": assumed_note})
         for k in total:
             total[k] += m[k]
     total = {k: round(v, 1) for k, v in total.items()}
     result = {"logged": items, "total": total, "unknown_items": unknown}
+    if assumed:
+        result["assumed_quantity"] = assumed
     if items:
         result["event_id"] = db.append(
             "meals", "meal", {"meal": args.get("meal", "unspecified"),
@@ -552,9 +604,13 @@ module = Module(
         "Meals: identify each food. Prefer qty+unit in everyday terms the user actually said "
         "(e.g. 2 roti, 1 katori dal, 1 cup rice) over estimating grams yourself — the tool "
         "converts units to grams using a household-units table. Only give grams directly if "
-        "the user stated an exact weight. Call meals__log_meal with items; macros are "
-        "computed by the tool. Items the tool reports as unknown must be mentioned to the "
-        "user. If the user describes a dish by its ingredients (e.g. 'my poha is 200g poha, "
+        "the user stated an exact weight. If the user names a food but no amount (e.g. 'roti "
+        "with spinach'), still include it without qty or grams: the tool logs a standard "
+        "serving and lists it under assumed_quantity, so tell the user which amounts were "
+        "assumed and that they can change the grams on the result card. Never refuse or ask "
+        "for the amount first. Call meals__log_meal with items; macros are "
+        "computed by the tool. Items the tool reports as unknown_items (food not in the "
+        "table) must be mentioned to the user. If the user describes a dish by its ingredients (e.g. 'my poha is 200g poha, "
         "1 egg, 50g peanuts') and names it, call define_recipe once so future mentions of "
         "that name match it directly."
     ),
