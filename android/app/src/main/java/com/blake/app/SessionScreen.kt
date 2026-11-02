@@ -62,6 +62,13 @@ class SessionViewModel : ViewModel() {
     var finished by mutableStateOf(false)
     var restSecondsRemaining by mutableStateOf(0)
     private var restJob: Job? = null
+
+    // A break between two different exercises (and after the warm-up): a countdown screen
+    // that shows what is coming next.
+    var inBreak by mutableStateOf(false)
+    var breakSecondsLeft by mutableStateOf(0)
+    private var breakJob: Job? = null
+    private val loggedWarmups = mutableSetOf<Int>()
     private var initialized = false
 
     var sessionStartMs = 0L
@@ -120,7 +127,8 @@ class SessionViewModel : ViewModel() {
      * (workouts.suggested_next, P4.1) — the model never guesses this. */
     fun loadSuggestion(context: Context) {
         val ex = currentExercise ?: return
-        if (ex.group == WarmUp.GROUP) return
+        // Going back to an exercise you already started keeps the weight you used.
+        if (ex.group == WarmUp.GROUP || setsLoggedForCurrent > 0) return
         suggestionText = ""
         val api = Prefs.apiFor(context)
         viewModelScope.launch {
@@ -213,13 +221,70 @@ class SessionViewModel : ViewModel() {
         }
     }
 
+    /** How long the break before this exercise lasts: a short get-ready after the warm-up,
+     * shorter for core and cardio, a full rest before strength work. */
+    fun breakSecondsFor(next: ExerciseItem, afterWarmup: Boolean): Int = when {
+        afterWarmup -> 30
+        next.group == "cardio" || next.group == "core" -> 45
+        else -> 90
+    }
+
+    private fun startBreak(seconds: Int) {
+        breakJob?.cancel()
+        inBreak = true
+        breakSecondsLeft = seconds
+        breakJob = viewModelScope.launch {
+            while (breakSecondsLeft > 0) {
+                delay(1000)
+                breakSecondsLeft--
+            }
+            inBreak = false
+        }
+    }
+
+    fun skipBreak() {
+        breakJob?.cancel()
+        breakSecondsLeft = 0
+        inBreak = false
+    }
+
+    fun extendBreak() {
+        if (inBreak) breakSecondsLeft += 30
+    }
+
+    /** One step back: the previous move or exercise. Sets already logged for it stay logged
+     * (they are saved); the set counter and the last weight and reps you used come back. */
+    fun previousExercise() {
+        if (currentIndex == 0) return
+        skipBreak()
+        restJob?.cancel()
+        restSecondsRemaining = 0
+        currentIndex--
+        resetInputsForCurrent()
+        val ex = currentExercise ?: return
+        if (ex.group != WarmUp.GROUP) {
+            val mine = loggedSets.filter { it.exercise == ex.name }
+            setsLoggedForCurrent = mine.size
+            mine.lastOrNull()?.let {
+                weightInput = if (it.weightKg == it.weightKg.toInt().toDouble()) it.weightKg.toInt().toString() else it.weightKg.toString()
+                repsInput = it.reps
+            }
+        }
+    }
+
     fun nextExercise(context: Context) {
-        currentExercise?.takeIf { it.group == WarmUp.GROUP }?.let { logWarmup(context, it) }
+        val leaving = currentExercise
+        // Counted once, even if you step back and forward through the same warm-up move.
+        if (leaving?.group == WarmUp.GROUP && loggedWarmups.add(currentIndex)) logWarmup(context, leaving)
         restJob?.cancel()
         restSecondsRemaining = 0
         if (currentIndex < exercises.lastIndex) {
             currentIndex++
             resetInputsForCurrent()
+            val next = currentExercise
+            if (next != null && next.group != WarmUp.GROUP) {
+                startBreak(breakSecondsFor(next, afterWarmup = leaving?.group == WarmUp.GROUP))
+            }
         } else {
             finished = true
             sessionEndMs = System.currentTimeMillis()
@@ -233,6 +298,8 @@ class SessionViewModel : ViewModel() {
     /** Ends early from the close button. Logged sets are already saved; the program day only
      * advances when the whole session is completed. */
     fun endEarly() {
+        breakJob?.cancel()
+        inBreak = false
         restJob?.cancel()
         restSecondsRemaining = 0
         finished = true
@@ -341,29 +408,39 @@ fun SessionScreen(onFinish: () -> Unit, vm: SessionViewModel = viewModel()) {
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(Spacing.lg),
         ) {
-            if (vm.isWarmup) WarmupBody(vm, ex) else ExerciseBody(vm, ex)
+            if (vm.inBreak) BreakBody(vm, ex) else if (vm.isWarmup) WarmupBody(vm, ex) else ExerciseBody(vm, ex)
         }
 
-        if (vm.isWarmup) {
+        if (vm.inBreak) {
+            PrimaryButton("Start now", onClick = { vm.skipBreak() })
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                QuietButton("Back", onClick = { vm.previousExercise() })
+                QuietButton("+30 s", onClick = { vm.extendBreak() })
+            }
+        } else if (vm.isWarmup) {
             PrimaryButton("Next", onClick = { vm.nextExercise(context) })
-        } else if (vm.setsLoggedForCurrent >= ex.sets) {
-            // Every planned set is saved: the main action becomes moving on.
-            PrimaryButton(
-                text = if (isLast) "Finish session" else "Next exercise",
-                onClick = { vm.nextExercise(context) },
-            )
-            QuietButton(
-                text = "Log an extra set",
-                onClick = { vm.logSet(context) },
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
+            if (vm.currentIndex > 0) {
+                QuietButton("Back", onClick = { vm.previousExercise() }, modifier = Modifier.align(Alignment.CenterHorizontally))
+            }
         } else {
-            PrimaryButton("Log set ${vm.setsLoggedForCurrent + 1}", onClick = { vm.logSet(context) })
-            QuietButton(
-                text = if (isLast) "Finish session" else "Next exercise",
-                onClick = { vm.nextExercise(context) },
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
+            val allDone = vm.setsLoggedForCurrent >= ex.sets
+            if (allDone) {
+                // Every planned set is saved: the main action becomes moving on.
+                PrimaryButton(
+                    text = if (isLast) "Finish session" else "Next exercise",
+                    onClick = { vm.nextExercise(context) },
+                )
+            } else {
+                PrimaryButton("Log set ${vm.setsLoggedForCurrent + 1}", onClick = { vm.logSet(context) })
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                QuietButton("Back", onClick = { vm.previousExercise() }, enabled = vm.currentIndex > 0)
+                if (allDone) {
+                    QuietButton("Log an extra set", onClick = { vm.logSet(context) })
+                } else {
+                    QuietButton(if (isLast) "Finish session" else "Skip to next", onClick = { vm.nextExercise(context) })
+                }
+            }
         }
     }
 }
@@ -412,7 +489,9 @@ private fun ProgressSegments(vm: SessionViewModel) {
                 )
             }
         }
-        val label = if (vm.isWarmup) {
+        val label = if (vm.inBreak) {
+            "BREAK"
+        } else if (vm.isWarmup) {
             "WARM-UP ${vm.currentIndex + 1} OF ${vm.warmupCount}"
         } else {
             val done = vm.currentIndex - vm.warmupCount + 1
@@ -444,6 +523,7 @@ private fun WarmupBody(vm: SessionViewModel, ex: ExerciseItem) {
         if (ex.note.isNotBlank()) {
             Text(ex.note, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        NextHint(vm)
     }
     HowTo(ex.name)
 }
@@ -459,6 +539,7 @@ private fun ExerciseBody(vm: SessionViewModel, ex: ExerciseItem) {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        NextHint(vm)
     }
 
     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
@@ -567,6 +648,51 @@ private fun HowTo(name: String) {
             )
         }
         SecondaryButton("Watch a demo", onClick = { ExerciseGuide.openDemo(context, name) })
+    }
+}
+
+/** "Up next" line: the following move or exercise, its target, and the break before it. */
+@Composable
+private fun NextHint(vm: SessionViewModel) {
+    val next = vm.exercises.getOrNull(vm.currentIndex + 1)
+    val text = when {
+        next == null -> "Last one. Finish strong."
+        next.group == WarmUp.GROUP -> "Up next: ${next.name}"
+        else -> {
+            val target = if (next.sets > 1) "${next.sets} \u00d7 ${next.reps}" else next.reps
+            val breakS = vm.breakSecondsFor(next, afterWarmup = vm.isWarmup)
+            "Up next: ${next.name} \u00b7 $target (after a $breakS s break)"
+        }
+    }
+    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+/** The break between two exercises: a countdown and a preview of what is next. */
+@Composable
+private fun BreakBody(vm: SessionViewModel, next: ExerciseItem) {
+    val context = LocalContext.current
+    val cue = remember(next.name) { ExerciseGuide.get(context, next.name)?.steps?.firstOrNull() }
+    BlakeCard {
+        SectionLabel("Break")
+        Text(clock(vm.breakSecondsLeft * 1000L), style = MaterialTheme.typography.displayLarge)
+        Text(
+            "Breathe, sip some water, shake it out.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    ExerciseMedia(next.name, next.group, 160.dp)
+    BlakeCard {
+        SectionLabel("Up next")
+        Text(next.name, style = MaterialTheme.typography.titleLarge)
+        Text(
+            "Target: ${if (next.sets > 1) "${next.sets} sets \u00d7 ${next.reps}" else next.reps}",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (cue != null) {
+            Text("First cue: $cue", style = MaterialTheme.typography.bodyMedium)
+        }
     }
 }
 
