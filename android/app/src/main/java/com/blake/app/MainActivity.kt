@@ -104,7 +104,9 @@ fun BlakeApp() {
             startDestination = "today",
             modifier = Modifier.padding(if (isFullScreenRoute) PaddingValues(0.dp) else innerPadding),
         ) {
-            composable("today") { TodayScreen() }
+            composable("today") {
+                TodayScreen(onNavigateToWorkout = { navController.navigateSingleTopTo("workout") })
+            }
             composable("workout") {
                 WorkoutScreen(onStartSession = { exercises ->
                     WorkoutSessionStore.pendingExercises = exercises

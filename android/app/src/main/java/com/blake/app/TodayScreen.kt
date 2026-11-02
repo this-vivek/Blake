@@ -66,6 +66,15 @@ class TodayViewModel : ViewModel() {
 
     var mealRefreshing by mutableStateOf(false)
 
+    var expenseAmount by mutableStateOf("")
+    var expenseResultText by mutableStateOf("")
+    // Added to /today's own spend.actual for display, since a queued expense doesn't land
+    // server-side until SyncWorker drains it — a lighter optimistic update than meal/set's
+    // full outbox+cached_events row, scoped to just this card's running total.
+    var pendingSpend by mutableStateOf(0.0)
+
+    var completingTaskIds by mutableStateOf<Set<Int>>(emptySet())
+
     /** Cache-first: render the last-known /today payload from Room immediately (if any),
      * then refresh from the network and persist the fresh copy for next time. */
     fun loadToday(context: Context) {
@@ -209,6 +218,33 @@ class TodayViewModel : ViewModel() {
         }
     }
 
+    /** Quick-add defaults to "food" — the roadmap calls for a quick-add, not a full category
+     * picker; "food" covers the common case and the exact category can still be corrected
+     * later via chat or the web-only history view if ever needed. */
+    fun logExpense(context: Context) {
+        val amount = expenseAmount.toDoubleOrNull() ?: return
+        if (amount <= 0) return
+        pendingSpend += amount
+        viewModelScope.launch {
+            val bodyJson = JSONObject().put("amount", amount).put("category", "food").toString()
+            OutboxRepository.enqueue(context, "/log/expense", "POST", bodyJson, "expense")
+            expenseResultText = "Logged ₹${amount.toInt()} — syncing..."
+            expenseAmount = ""
+        }
+    }
+
+    /** Optimistically hides the task immediately; /tasks/{id}/complete is already safe to
+     * retry (completing an already-done task just 404s, never double-completes), so this
+     * doesn't need the outbox — a direct call matches how Undo/void already work elsewhere. */
+    fun completeTask(context: Context, taskId: Int) {
+        completingTaskIds = completingTaskIds + taskId
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.completeTask(taskId) }
+            result.onFailure { completingTaskIds = completingTaskIds - taskId }
+        }
+    }
+
     // Free-text/photo logging, docked on Today — replaces the old standalone Log tab.
     var chatInput by mutableStateOf("")
     var chatImageUri by mutableStateOf<Uri?>(null)
@@ -306,7 +342,7 @@ private fun optionalDouble(obj: JSONObject?, key: String): Double? {
 }
 
 @Composable
-fun TodayScreen(vm: TodayViewModel = viewModel()) {
+fun TodayScreen(onNavigateToWorkout: () -> Unit = {}, vm: TodayViewModel = viewModel()) {
     val context = LocalContext.current
 
     LaunchedEffect(Unit) { vm.loadToday(context) }
@@ -321,6 +357,11 @@ fun TodayScreen(vm: TodayViewModel = viewModel()) {
             MealEditor(vm, context)
         }
 
+        TrainingCard(vm.todayJson, onNavigateToWorkout)
+        SpendCard(vm, context)
+        TasksCard(vm, context)
+        NudgesRow(vm.todayJson)
+
         Divider()
 
         Text("Log anything", style = MaterialTheme.typography.titleMedium)
@@ -328,6 +369,128 @@ fun TodayScreen(vm: TodayViewModel = viewModel()) {
             ChatResultCard(vm)
         }
         Composer(vm)
+    }
+}
+
+@Composable
+private fun TrainingCard(todayJson: JSONObject?, onNavigateToWorkout: () -> Unit) {
+    val training = todayJson?.optJSONObject("training")
+    val setsToday = training?.optJSONArray("sets_today")
+    val setCount = setsToday?.length() ?: 0
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Training", style = MaterialTheme.typography.titleMedium)
+            if (setCount == 0) {
+                Text("No sets logged yet today", style = MaterialTheme.typography.bodyMedium)
+                Button(onClick = onNavigateToWorkout, modifier = Modifier.fillMaxWidth()) {
+                    Text("Start session")
+                }
+            } else {
+                val kcalBurned = training?.optDouble("kcal_burned_today") ?: 0.0
+                val groupsArr = training?.optJSONArray("muscle_groups_today")
+                val groups = (0 until (groupsArr?.length() ?: 0)).map { groupsArr!!.getString(it) }
+                val prCount = training?.optJSONArray("prs_today")?.length() ?: 0
+
+                Text(
+                    "$setCount set${if (setCount == 1) "" else "s"} logged" +
+                        if (groups.isNotEmpty()) " — ${groups.joinToString(", ")}" else "",
+                )
+                Text("${kcalBurned.toInt()} kcal burned today", style = MaterialTheme.typography.bodyMedium)
+                if (prCount > 0) {
+                    Text("🎉 $prCount PR${if (prCount > 1) "s" else ""} today", style = MaterialTheme.typography.bodyMedium)
+                }
+                TextButton(onClick = onNavigateToWorkout) { Text("Log another session") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpendCard(vm: TodayViewModel, context: Context) {
+    val spend = vm.todayJson?.optJSONObject("spend")
+    val actual = (spend?.optDouble("actual") ?: 0.0) + vm.pendingSpend
+    val goal = optionalDouble(spend, "goal")
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Spend", style = MaterialTheme.typography.titleMedium)
+            Text(
+                Format.currency(actual) + (goal?.let { " / ${Format.currency(it)}" } ?: ""),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            if (goal != null && goal > 0) {
+                LinearProgressIndicator(
+                    progress = (actual / goal).toFloat().coerceIn(0f, 1f),
+                    modifier = Modifier.fillMaxWidth(),
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = vm.expenseAmount,
+                    onValueChange = { vm.expenseAmount = it },
+                    label = { Text("Quick-add ₹") },
+                    modifier = Modifier.weight(1f),
+                )
+                Button(
+                    onClick = { vm.logExpense(context) },
+                    enabled = (vm.expenseAmount.toDoubleOrNull() ?: 0.0) > 0,
+                ) { Text("Add") }
+            }
+            if (vm.expenseResultText.isNotBlank()) {
+                Text(vm.expenseResultText, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TasksCard(vm: TodayViewModel, context: Context) {
+    val openTasks = vm.todayJson?.optJSONArray("open_tasks")
+    val count = openTasks?.length() ?: 0
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Tasks", style = MaterialTheme.typography.titleMedium)
+            val visible = (0 until count).map { openTasks!!.getJSONObject(it) }
+                .filterNot { it.optInt("id") in vm.completingTaskIds }
+            if (visible.isEmpty()) {
+                Text("Nothing open", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                visible.forEach { task ->
+                    val taskId = task.optInt("id")
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Checkbox(checked = false, onCheckedChange = { vm.completeTask(context, taskId) })
+                        Text(task.optString("title"), modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NudgesRow(todayJson: JSONObject?) {
+    val nudges = todayJson?.optJSONArray("nudges")
+    if (nudges == null || nudges.length() == 0) return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        for (i in 0 until nudges.length()) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    nudges.getString(i),
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
     }
 }
 

@@ -121,6 +121,18 @@ def log_set_direct(req: LogSetRequest):
     return registry.call("workouts__log_set", req.model_dump(), db)
 
 
+class LogExpenseRequest(BaseModel):
+    amount: float
+    category: str
+    note: str = ""
+    client_id: str | None = None
+
+
+@app.post("/log/expense", dependencies=[Depends(require_api_key)])
+def log_expense_direct(req: LogExpenseRequest):
+    return registry.call("expenses__log_expense", req.model_dump(), db)
+
+
 @app.post("/tasks/{task_id}/complete", dependencies=[Depends(require_api_key)])
 def complete_task_direct(task_id: int):
     return registry.call("tasks__complete_by_id", {"task_id": task_id}, db)

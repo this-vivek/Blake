@@ -104,6 +104,23 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
         }
     }
 
+    fun completeTask(taskId: Int): Result<String> {
+        return try {
+            val request = Request.Builder()
+                .url("$baseUrl/tasks/$taskId/complete")
+                .header("X-API-Key", apiKey)
+                .post("".toRequestBody(null))
+                .build()
+            client.newCall(request).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (resp.isSuccessful) Result.success(body)
+                else Result.failure(IOException("HTTP ${resp.code}: $body"))
+            }
+        } catch (e: IOException) {
+            Result.failure(e)
+        }
+    }
+
     fun voidEvent(eventId: Int): Result<String> {
         return try {
             val request = Request.Builder()

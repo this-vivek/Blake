@@ -32,6 +32,15 @@ def test_log_expense_unknown_category_falls_back_to_other(reg, db):
     assert out["logged"]["category"] == "other"
 
 
+def test_log_expense_retry_with_same_client_id_does_not_double_log(reg, db):
+    args = {"amount": 250, "category": "food", "client_id": "expense-retry-1"}
+    first = reg.call("expenses__log_expense", args, db)
+    second = reg.call("expenses__log_expense", args, db)
+    assert first["event_id"] == second["event_id"]
+    assert second.get("duplicate") is True
+    assert len(db.query("expenses", "expense")) == 1
+
+
 def test_daily_summary_totals_and_breaks_down_by_category(reg, db):
     reg.call("expenses__log_expense", {"amount": 100, "category": "food"}, db)
     reg.call("expenses__log_expense", {"amount": 50, "category": "transport"}, db)

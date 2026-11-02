@@ -15,8 +15,15 @@ def log_expense(args: dict, db) -> dict:
     if category not in CATEGORIES:
         category = "other"
     note = str(args.get("note", "")).strip()
+
+    client_id = args.get("client_id")
+    if client_id:
+        existing = db.find_by_client_id(client_id)
+        if existing:  # retried request that already landed — return the original, don't redo it
+            return {"logged": existing["payload"], "event_id": existing["id"], "duplicate": True}
+
     entry = {"amount": round(amount, 2), "category": category, "note": note}
-    event_id = db.append("expenses", "expense", entry)
+    event_id = db.append("expenses", "expense", entry, client_id=client_id)
     return {"logged": entry, "event_id": event_id}
 
 
