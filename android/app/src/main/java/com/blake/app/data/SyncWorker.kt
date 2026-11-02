@@ -46,9 +46,9 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
     }
 
     /** Replace the optimistic (negative, temp-id) cached_events row with one carrying the
-     * server-confirmed id, once the matching write actually lands. The /log/* response shape
-     * (e.g. {"logged": ..., "total": ..., "event_id": ...}) differs from the event payload
-     * shape /history returns (e.g. {"meal": ..., "items": ..., "total": ...}) that
+     * server-confirmed id, once the matching write actually lands. The log-endpoint response
+     * shape (e.g. {"logged": ..., "total": ..., "event_id": ...}) differs from the event
+     * payload shape /history returns (e.g. {"meal": ..., "items": ..., "total": ...}) that
      * formatEntryText expects, so this rebuilds the latter from the response + original
      * request body rather than storing the raw response. */
     private suspend fun reconcile(db: BlakeDatabase, item: OutboxEntity, responseJson: String) {
