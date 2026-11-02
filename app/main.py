@@ -13,6 +13,7 @@ from app.insights import insights as build_insights
 from app.insights import trend as build_trend
 from app.meal_refresh import refresh_meal_suggestion
 from app.reset import reset_day, reset_logs
+from app.weekly_review import weekly_review
 from app.today import build_today
 from modules.meals import add_custom_food, edit_meal, list_unmatched, resolve_unmatched
 from modules.workouts import complete_program_day, log_warmup, suggested_next, today_program_day
@@ -277,6 +278,13 @@ def trends(metric: str, days: int = 14):
 def insights_view(days: int = 14):
     """Everything on the Insights tab in one call: every trend plus the streaks."""
     return build_insights(db, registry, days)
+
+
+@app.get("/review/weekly", dependencies=[Depends(require_api_key)])
+def review_weekly():
+    """Last completed week's review. Written on the first request after the week closes
+    (Sonnet, numbers checked against the data), then returned as saved."""
+    return weekly_review(db, registry, client)
 
 
 @app.get("/today", dependencies=[Depends(require_api_key)])

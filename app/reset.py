@@ -22,6 +22,7 @@ LOG_KINDS = {
     "expenses": ["expense"],
     "tasks": ["task", "task_done"],
     "chat": ["turn"],
+    "insights": ["weekly_review"],  # derived from the logs above, so it goes with them
 }
 
 
