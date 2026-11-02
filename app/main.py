@@ -196,6 +196,7 @@ def log_set_direct(req: LogSetRequest):
 
 class LogWarmupRequest(BaseModel):
     seconds: float
+    name: str | None = None  # which move, so the Timeline can list them
     client_id: str | None = None
 
 
@@ -286,6 +287,12 @@ def review_weekly():
     """Last completed week's review. Written on the first request after the week closes
     (Sonnet, numbers checked against the data), then returned as saved."""
     return weekly_review(db, registry, client)
+
+
+@app.post("/review/weekly/refresh", dependencies=[Depends(require_api_key)])
+def review_weekly_refresh():
+    """Writes the last completed week's review again (one Sonnet call) and saves it."""
+    return weekly_review(db, registry, client, force=True)
 
 
 @app.get("/today", dependencies=[Depends(require_api_key)])

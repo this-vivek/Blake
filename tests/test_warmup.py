@@ -48,3 +48,9 @@ def test_warmup_retry_with_same_client_id_is_not_double_counted(db):
     second = log_warmup({"seconds": 60, "client_id": "w1"}, db)
     assert second["duplicate"] is True and second["event_id"] == first["event_id"]
     assert len(db.query("workouts", "warmup")) == 1
+
+
+def test_warmup_remembers_which_move_it_was(db):
+    out = log_warmup({"seconds": 30, "name": "  Arm circles "}, db)
+    assert db.get(out["event_id"])["payload"]["name"] == "Arm circles"
+    assert "name" not in db.get(log_warmup({"seconds": 30}, db)["event_id"])["payload"]

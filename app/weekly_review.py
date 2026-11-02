@@ -206,16 +206,20 @@ def write_fallback(packet: dict) -> dict:
 
 # ---- entry point --------------------------------------------------------------------------------
 
-def weekly_review(db, registry, client, now: float | None = None, tz_name: str | None = None) -> dict:
+def weekly_review(db, registry, client, now: float | None = None, tz_name: str | None = None,
+                  force: bool = False) -> dict:
+    """force=True writes a fresh review even if one is saved (the Refresh button); the new one
+    is saved after the old, so later requests return it."""
     tz = _tz(tz_name)
     now = clock.now() if now is None else now
     today = local_date(now, tz)
     week_start = today - timedelta(days=today.weekday() + 7)  # Monday of the last completed week
     key = week_start.isoformat()
 
-    for e in db.query_active("insights", "weekly_review", limit=1000):
-        if e["payload"].get("week_start") == key:
-            return e["payload"]
+    if not force:
+        for e in db.query_active("insights", "weekly_review", limit=1000):
+            if e["payload"].get("week_start") == key:
+                return e["payload"]
 
     packet = build_packet(db, registry, week_start, tz)
     if not _has_activity(packet):

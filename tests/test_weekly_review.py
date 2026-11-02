@@ -201,3 +201,20 @@ def test_resetting_all_logs_removes_saved_reviews(reg, week):
     weekly_review(week, reg, ScriptedClient(GOOD), NOW, TZ)
     reset_logs(week)
     assert week.query_active("insights", "weekly_review") == []
+
+
+def test_refresh_writes_a_new_review_and_later_requests_return_it(reg, week):
+    second_text = reply("A better look: 2 training days.", [])
+    client = ScriptedClient(GOOD, second_text)
+    original = weekly_review(week, reg, client, NOW, TZ)
+    refreshed = weekly_review(week, reg, client, NOW + 60, TZ, force=True)
+    assert client.calls == 2 and refreshed["summary"] != original["summary"]
+    assert refreshed["summary"].startswith("A better look")
+    assert weekly_review(week, reg, client, NOW + 120, TZ) == refreshed  # newest one is returned, no new call
+    assert client.calls == 2
+
+
+def test_refresh_of_an_empty_week_still_makes_no_model_call(reg, db):
+    client = ScriptedClient(GOOD)
+    assert weekly_review(db, reg, client, NOW, TZ, force=True)["empty"] is True
+    assert client.calls == 0

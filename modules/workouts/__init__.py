@@ -154,9 +154,11 @@ def log_warmup(args: dict, db) -> dict:
                     "duplicate": True, "event_id": existing["id"]}
 
     kcal_burned = _kcal_for_warmup(seconds, db)
-    event_id = db.append("workouts", "warmup",
-                         {"seconds": round(seconds, 1), "kcal_burned": kcal_burned},
-                         client_id=client_id)
+    payload = {"seconds": round(seconds, 1), "kcal_burned": kcal_burned}
+    name = str(args.get("name") or "").strip()[:60]
+    if name:
+        payload["name"] = name
+    event_id = db.append("workouts", "warmup", payload, client_id=client_id)
     return {"logged": {"seconds": round(seconds, 1)}, "kcal_burned": kcal_burned,
             "event_id": event_id}
 
