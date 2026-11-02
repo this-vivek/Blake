@@ -133,6 +133,68 @@ FOODS = {
     "ketchup": (112, 1.2, 27.0, 0.1),
 }
 
+# Generic units that convert the same way regardless of food (ROADMAP-NEXTGEN.md P5).
+GENERIC_UNITS_TO_GRAMS = {"g": 1.0, "gram": 1.0, "grams": 1.0, "kg": 1000.0,
+                           "ml": 1.0, "l": 1000.0}
+
+# (food, unit) -> grams per unit, for household units whose weight depends on the food
+# itself (a "piece" of roti and a "piece" of banana are very different) — editable defaults,
+# not a measurement. Only common household units Claude is likely to hear are covered;
+# anything else falls through to "unknown" rather than guessing.
+HOUSEHOLD_UNITS: dict[tuple[str, str], float] = {
+    ("roti", "piece"): 40.0, ("roti", "roti"): 40.0,
+    ("chapati", "piece"): 40.0, ("chapati", "chapati"): 40.0,
+    ("naan", "piece"): 90.0,
+    ("paratha", "piece"): 80.0,
+    ("idli", "piece"): 40.0,
+    ("dosa", "piece"): 100.0,
+    ("vada", "piece"): 50.0,
+    ("samosa", "piece"): 60.0,
+    ("egg", "piece"): 50.0,
+    ("banana", "piece"): 120.0,
+    ("apple", "piece"): 150.0,
+    ("orange", "piece"): 130.0,
+    ("mango", "piece"): 150.0,
+    ("rice", "katori"): 150.0, ("rice", "cup"): 180.0, ("rice", "bowl"): 200.0,
+    ("dal", "katori"): 150.0, ("dal", "bowl"): 200.0,
+    ("sambar", "katori"): 150.0, ("sambar", "bowl"): 200.0,
+    ("curd", "katori"): 100.0, ("curd", "bowl"): 150.0,
+    ("milk", "glass"): 200.0, ("milk", "cup"): 200.0,
+    ("tea", "cup"): 150.0,
+    ("coffee", "cup"): 150.0,
+    ("peanut butter", "tbsp"): 16.0,
+    ("butter", "tbsp"): 14.0,
+    ("ghee", "tbsp"): 14.0, ("ghee", "tsp"): 5.0,
+    ("sugar", "tbsp"): 12.0, ("sugar", "tsp"): 4.0,
+    ("honey", "tbsp"): 21.0, ("honey", "tsp"): 7.0,
+    ("bread", "slice"): 30.0,
+    ("cheese", "slice"): 20.0,
+}
+
+
+def _grams_for(name: str, item: dict) -> float | None:
+    """Converts an item to grams, preferring explicit grams if given (unchanged for direct
+    HTTP callers like Android's structured meal flows, which already know exact grams), then
+    falling back to qty+unit (Claude's preferred path for everyday food descriptions)."""
+    if "grams" in item and item["grams"] is not None:
+        try:
+            return float(item["grams"])
+        except (TypeError, ValueError):
+            return None
+    qty, unit = item.get("qty"), item.get("unit")
+    if qty is None or not unit:
+        return None
+    try:
+        qty = float(qty)
+    except (TypeError, ValueError):
+        return None
+    unit_lower = str(unit).strip().lower()
+    if unit_lower in GENERIC_UNITS_TO_GRAMS:
+        return qty * GENERIC_UNITS_TO_GRAMS[unit_lower]
+    per_unit = HOUSEHOLD_UNITS.get((name, unit_lower))
+    return qty * per_unit if per_unit is not None else None
+
+
 # Common qualifiers Claude adds that shouldn't block a match (boiled, cooked, raw, etc.).
 _NOISE_WORDS = {
     "boiled", "cooked", "raw", "fried", "grilled", "steamed", "roasted", "baked",
@@ -175,12 +237,18 @@ def log_meal(args: dict, db) -> dict:
     total = {"kcal": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
     for it in items_in:
         raw_name = str(it.get("name", "")).strip().lower()
-        grams = float(it.get("grams", 0))
         matched = _match(raw_name) if raw_name else None
-        if not matched or grams <= 0:
+        # Unit conversion depends on the matched food (a "piece" means different things for
+        # roti vs. banana), so it happens after matching, against the canonical name.
+        grams = _grams_for(matched[0], it) if matched else None
+        if not matched or grams is None or grams <= 0:
             unknown.append(raw_name or "?")
             if raw_name:
-                db.append("meals", "unmatched", {"name": raw_name, "grams": grams})
+                # Preserve whatever grams the caller gave even when the food itself didn't
+                # match, since the Unmatched screen (P5) needs the original quantity to let
+                # the user map it to a real food without re-entering it.
+                fallback_grams = float(it.get("grams") or 0.0)
+                db.append("meals", "unmatched", {"name": raw_name, "grams": fallback_grams})
             continue
         name, per100 = matched
         m = dict(zip(("kcal", "protein", "carbs", "fat"), (v * grams / 100 for v in per100)))
@@ -343,19 +411,30 @@ module = Module(
     name="meals",
     version="0.1.0",
     system_prompt=(
-        "Meals: identify each food and estimate grams (state assumptions briefly). "
-        "Call meals__log_meal with items; macros are computed by the tool. "
-        "Items the tool reports as unknown must be mentioned to the user."
+        "Meals: identify each food. Prefer qty+unit in everyday terms the user actually said "
+        "(e.g. 2 roti, 1 katori dal, 1 cup rice) over estimating grams yourself — the tool "
+        "converts units to grams using a household-units table. Only give grams directly if "
+        "the user stated an exact weight. Call meals__log_meal with items; macros are "
+        "computed by the tool. Items the tool reports as unknown must be mentioned to the "
+        "user."
     ),
     tools=[
         Tool(
             "log_meal",
-            "Log a meal from identified foods with estimated grams.",
+            "Log a meal from identified foods, in qty+unit (preferred) or exact grams.",
             {"type": "object", "required": ["items"], "properties": {
                 "meal": {"type": "string", "enum": ["breakfast", "lunch", "dinner", "snack"]},
                 "items": {"type": "array", "items": {"type": "object",
-                          "required": ["name", "grams"], "properties": {
-                              "name": {"type": "string"}, "grams": {"type": "number"}}}}}},
+                          "required": ["name"], "properties": {
+                              "name": {"type": "string"},
+                              "qty": {"type": "number",
+                                      "description": "quantity in the given unit"},
+                              "unit": {"type": "string",
+                                       "description": "e.g. piece, katori, cup, bowl, tbsp, "
+                                                       "tsp, slice, glass, gram"},
+                              "grams": {"type": "number",
+                                        "description": "exact grams, only if known directly"},
+                          }}}}},
             log_meal,
         ),
         Tool("daily_summary", "Macro totals for today (local calendar day).",

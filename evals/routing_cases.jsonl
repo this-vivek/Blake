@@ -35,3 +35,6 @@
 {"text": "I want to train legs on Mondays and Thursdays, rest the rest of the week", "expect": ["workouts__set_program"]}
 {"text": "what's my current workout program?", "expect": ["workouts__get_program"]}
 {"text": "what days do I train according to my plan?", "expect": ["workouts__get_program"]}
+{"text": "had 2 roti and a katori of dal for lunch", "expect": ["meals__log_meal"]}
+{"text": "drank a glass of milk", "expect": ["meals__log_meal"]}
+{"text": "one bowl of curd after dinner", "expect": ["meals__log_meal"]}

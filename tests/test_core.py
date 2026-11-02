@@ -38,6 +38,26 @@ def test_meal_macros_from_lookup_not_model(reg, db):
     assert reg.call("meals__daily_summary", {}, db)["today"]["kcal"] == 143.0
 
 
+def test_log_meal_converts_household_unit_to_grams(reg, db):
+    out = reg.call("meals__log_meal", {"items": [{"name": "roti", "qty": 2, "unit": "piece"}]}, db)
+    assert out["logged"][0]["grams"] == 80.0  # 2 x 40g per roti
+
+
+def test_log_meal_converts_generic_unit_regardless_of_food(reg, db):
+    out = reg.call("meals__log_meal", {"items": [{"name": "rice", "qty": 0.15, "unit": "kg"}]}, db)
+    assert out["logged"][0]["grams"] == 150.0
+
+
+def test_log_meal_unknown_unit_for_food_is_unmatched_not_guessed(reg, db):
+    out = reg.call("meals__log_meal", {"items": [{"name": "roti", "qty": 2, "unit": "slice"}]}, db)
+    assert out["unknown_items"] == ["roti"]
+
+
+def test_log_meal_explicit_grams_still_works_alongside_qty_unit(reg, db):
+    out = reg.call("meals__log_meal", {"items": [{"name": "egg", "grams": 100}]}, db)
+    assert out["logged"][0]["grams"] == 100.0
+
+
 def test_log_meal_retry_with_same_client_id_does_not_double_log(reg, db):
     args = {"items": [{"name": "egg", "grams": 100}], "client_id": "retry-1"}
     first = reg.call("meals__log_meal", args, db)
