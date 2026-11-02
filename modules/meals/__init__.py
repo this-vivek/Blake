@@ -255,14 +255,19 @@ def _match(name: str, db=None) -> tuple[str, tuple] | None:
     if name in foods:
         return name, foods[name]
     primary = re.sub(r"\([^)]*\)", " ", name)
-    words = {w for w in primary.replace(",", " ").split() if w not in _NOISE_WORDS}
-    candidates = [k for k in foods if set(k.split()) <= words]
-    if candidates:
-        # Most words matched wins first (a composite dish name beats a single ingredient
-        # word it happens to contain, e.g. "egg curry" over "tomato" in "egg curry with
-        # onion and tomato"), character length only breaks ties within the same word count.
-        best = max(candidates, key=lambda k: (len(k.split()), len(k)))
-        return best, foods[best]
+    raw_words = set(primary.replace(",", " ").split())
+    filtered_words = {w for w in raw_words if w not in _NOISE_WORDS}
+    # Try the unfiltered words first: a noise word can be part of a real food name ("sweet"
+    # in "sweet potato"), and stripping it first would match the plain "potato" entry
+    # instead (issue #1). Only fall back to the noise-stripped set when nothing matches.
+    for words in (raw_words, filtered_words):
+        candidates = [k for k in foods if set(k.split()) <= words]
+        if candidates:
+            # Most words matched wins first (a composite dish name beats a single ingredient
+            # word it happens to contain, e.g. "egg curry" over "tomato" in "egg curry with
+            # onion and tomato"), character length only breaks ties within the same word count.
+            best = max(candidates, key=lambda k: (len(k.split()), len(k)))
+            return best, foods[best]
     return None
 
 

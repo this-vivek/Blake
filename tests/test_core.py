@@ -134,6 +134,22 @@ def test_meal_matching_prefers_dish_name_over_ingredient_word(reg, db):
     assert out["logged"][0]["name"] == "egg curry"
 
 
+@pytest.mark.parametrize("name", [
+    "sweet potato", "boiled sweet potato", "baked sweet potato (skin on)", "sweet potato, chopped",
+])
+def test_meal_matching_keeps_sweet_potato_distinct_from_potato(reg, db, name):
+    # Issue #1: "sweet" was a noise word, so any qualified input collapsed to plain "potato".
+    out = reg.call("meals__log_meal", {"items": [{"name": name, "grams": 100}]}, db)
+    item = out["logged"][0]
+    assert item["name"] == "sweet potato"
+    assert (item["kcal"], item["carbs"]) == (86.0, 20.1)
+
+
+def test_meal_matching_still_strips_noise_when_nothing_matches_raw(reg, db):
+    out = reg.call("meals__log_meal", {"items": [{"name": "boiled egg", "grams": 100}]}, db)
+    assert out["logged"][0]["name"] == "egg"
+
+
 def test_log_meal_converts_household_unit_to_grams(reg, db):
     out = reg.call("meals__log_meal", {"items": [{"name": "roti", "qty": 2, "unit": "piece"}]}, db)
     assert out["logged"][0]["grams"] == 80.0  # 2 x 40g per roti
