@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-private data class UnmatchedItem(val id: Int, val name: String, val grams: Double)
+data class UnmatchedItem(val id: Int, val name: String, val grams: Double)
 
 class UnmatchedViewModel : ViewModel() {
     var items by mutableStateOf<List<UnmatchedItem>>(emptyList())
