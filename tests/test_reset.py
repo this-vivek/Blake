@@ -64,3 +64,10 @@ def test_reset_logs_clears_history_but_keeps_goals_program_and_foods(reg, db):
     assert db.query_active("workouts", "program") != []
     assert db.query_active("meals", "custom_food") != []
     assert today_program_day(db)["day"]["muscle_group"] == "chest"
+
+
+def test_reset_day_also_voids_warmups(reg, db):
+    from modules.workouts import log_warmup
+    log_warmup({"seconds": 300}, db)
+    assert reset_day(db)["voided"] == 1
+    assert build_today(db, reg)["training"]["kcal_burned_today"] == 0

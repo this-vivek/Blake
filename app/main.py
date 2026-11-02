@@ -13,7 +13,7 @@ from app.meal_refresh import refresh_meal_suggestion
 from app.reset import reset_day, reset_logs
 from app.today import build_today
 from modules.meals import add_custom_food, edit_meal, list_unmatched, resolve_unmatched
-from modules.workouts import complete_program_day, suggested_next, today_program_day
+from modules.workouts import complete_program_day, log_warmup, suggested_next, today_program_day
 
 app = FastAPI(title="Blake")
 db = Db(os.getenv("BLAKE_DB_PATH", "blake.db"))
@@ -188,6 +188,16 @@ class LogSetRequest(BaseModel):
 @app.post("/log/set", dependencies=[Depends(require_api_key)])
 def log_set_direct(req: LogSetRequest):
     return registry.call("workouts__log_set", req.model_dump(), db)
+
+
+class LogWarmupRequest(BaseModel):
+    seconds: float
+    client_id: str | None = None
+
+
+@app.post("/log/warmup", dependencies=[Depends(require_api_key)])
+def log_warmup_direct(req: LogWarmupRequest):
+    return log_warmup(req.model_dump(), db)
 
 
 class LogExpenseRequest(BaseModel):

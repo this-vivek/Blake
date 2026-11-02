@@ -124,6 +124,43 @@ def _kcal_for_set(exercise: str, db) -> float:
     return round(met * bodyweight * 3.5 / 200 * SET_DURATION_MIN, 1)
 
 
+# Light calisthenics (2011 Compendium of Physical Activities, code 02030 range). Same formula
+# as sets: MET * bodyweight_kg * 3.5 / 200 kcal per minute.
+WARMUP_MET = 3.5
+MAX_WARMUP_SECONDS = 30 * 60
+
+
+def _kcal_for_warmup(seconds: float, db) -> float:
+    bodyweight = get_goals({}, db).get("bodyweight_kg", DEFAULT_BODYWEIGHT_KG)
+    return round(WARMUP_MET * bodyweight * 3.5 / 200 * (seconds / 60), 1)
+
+
+def log_warmup(args: dict, db) -> dict:
+    """Warm-up time counts as activity: kcal comes from the same MET formula as sets, never
+    from the client. Not an LLM tool; the app calls it as each warm-up move finishes."""
+    try:
+        seconds = float(args["seconds"])
+    except (KeyError, ValueError, TypeError):
+        return {"error": "need seconds"}
+    if not 1 <= seconds <= MAX_WARMUP_SECONDS:
+        return {"error": f"seconds must be between 1 and {MAX_WARMUP_SECONDS}"}
+
+    client_id = args.get("client_id")
+    if client_id:
+        existing = db.find_by_client_id(client_id)
+        if existing:  # retried request that already landed
+            p = existing["payload"]
+            return {"logged": {"seconds": p["seconds"]}, "kcal_burned": p["kcal_burned"],
+                    "duplicate": True, "event_id": existing["id"]}
+
+    kcal_burned = _kcal_for_warmup(seconds, db)
+    event_id = db.append("workouts", "warmup",
+                         {"seconds": round(seconds, 1), "kcal_burned": kcal_burned},
+                         client_id=client_id)
+    return {"logged": {"seconds": round(seconds, 1)}, "kcal_burned": kcal_burned,
+            "event_id": event_id}
+
+
 def log_set(args: dict, db) -> dict:
     try:
         ex = str(args["exercise"]).strip().lower()

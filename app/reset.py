@@ -10,7 +10,7 @@ from app.core import clock
 # reopens the task / moves the program pointer back.
 DAY_KINDS = {
     "meals": ["meal", "unmatched"],
-    "workouts": ["set", "program_day_done"],
+    "workouts": ["set", "warmup", "program_day_done"],
     "expenses": ["expense"],
     "tasks": ["task_done"],
 }
@@ -18,7 +18,7 @@ DAY_KINDS = {
 # Everything that is a log rather than a setting.
 LOG_KINDS = {
     "meals": ["meal", "unmatched"],
-    "workouts": ["set", "program_day_done"],
+    "workouts": ["set", "warmup", "program_day_done"],
     "expenses": ["expense"],
     "tasks": ["task", "task_done"],
     "chat": ["turn"],

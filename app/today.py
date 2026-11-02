@@ -24,6 +24,7 @@ def build_today(db, registry, now: float | None = None) -> dict:
     )
 
     sets_today = db.query_active("workouts", "set", since=since)
+    warmups_today = db.query_active("workouts", "warmup", since=since)
     all_sets_sorted = sorted(db.query_active("workouts", "set", limit=10**6), key=lambda e: e["ts"])
     prs_today = prs_in(all_sets_sorted, since)
     muscle_groups_today = muscle_groups_for({e["payload"]["exercise"] for e in sets_today})
@@ -69,7 +70,7 @@ def build_today(db, registry, now: float | None = None) -> dict:
             # Durable regardless of app lifecycle — every set is logged (and its kcal_burned
             # computed) the moment it happens, not batched at "finish session".
             "kcal_burned_today": round(
-                sum(e["payload"].get("kcal_burned", 0.0) for e in sets_today), 1
+                sum(e["payload"].get("kcal_burned", 0.0) for e in sets_today + warmups_today), 1
             ),
         },
         "spend": {"actual": spend_today["total"], "goal": goals.get("daily_spend")},
