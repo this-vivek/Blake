@@ -55,6 +55,9 @@ fun TodayScreen(
 ) {
     val context = LocalContext.current
     var showSpend by remember { mutableStateOf(false) }
+    var showWeight by remember { mutableStateOf(false) }
+    var showSleep by remember { mutableStateOf(false) }
+    var showNewHabit by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         vm.loadToday(context)
@@ -91,8 +94,11 @@ fun TodayScreen(
             if (vm.editingSlot != null) MealEditor(vm, context)
             Nudges(vm.todayJson)
             TrainingCard(vm, context, onStartSession, onNavigateToWorkout)
+            HabitsCard(vm, context, onNew = { showNewHabit = true })
             SpendCard(vm, onAdd = { showSpend = true })
             TasksCard(vm, context)
+            WeightCard(vm, onLog = { showWeight = true })
+            SleepCard(vm, onLog = { showSleep = true })
         }
         CollapsingHero(vm, progress)
     }
@@ -100,6 +106,9 @@ fun TodayScreen(
     if (showSpend) {
         SpendSheet(vm, onDismiss = { showSpend = false })
     }
+    if (showWeight) WeightSheet(vm, onDismiss = { showWeight = false })
+    if (showSleep) SleepSheet(vm, onDismiss = { showSleep = false })
+    if (showNewHabit) NewHabitSheet(vm, onDismiss = { showNewHabit = false })
 }
 
 private val HERO_EXPANDED = 376.dp
@@ -602,7 +611,7 @@ private fun SpendSheet(vm: TodayViewModel, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun sheetFieldColors() = OutlinedTextFieldDefaults.colors(
+internal fun sheetFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
     focusedBorderColor = MaterialTheme.colorScheme.outline,

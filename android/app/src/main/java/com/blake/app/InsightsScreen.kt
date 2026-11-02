@@ -44,11 +44,28 @@ internal data class InsightMetric(
 internal data class DailyStreak(val current: Int, val best: Int, val todayDone: Boolean, val graceUsed: Boolean)
 internal data class TrainingStreak(val currentWeeks: Int, val bestWeeks: Int, val days: Int, val goal: Int, val met: Boolean)
 
+internal data class HabitInsight(
+    val name: String, val kind: String, val target: Float?, val unit: String,
+    val values: List<Float>, val hitPct: Int?, val hitDays: Int, val counted: Int, val current: Int, val best: Int,
+)
+
+/** date (ISO) -> value(s), for the sparse series of weight and sleep. */
+internal data class BodyInsight(
+    val kg: Map<String, Float>, val avg7: Map<String, Float>, val latest: Float?, val average: Float?, val change: Float?,
+)
+
+internal data class SleepInsight(
+    val hours: Map<String, Float>, val nights: Int, val avgHours: Float?, val avgQuality: Float?,
+)
+
 internal data class InsightsData(
     val metrics: Map<String, InsightMetric>,
     val meals: DailyStreak?,
     val protein: DailyStreak?,
     val training: TrainingStreak?,
+    val habits: List<HabitInsight> = emptyList(),
+    val body: BodyInsight? = null,
+    val sleep: SleepInsight? = null,
 )
 
 class InsightsViewModel : ViewModel() {
@@ -182,7 +199,53 @@ class InsightsViewModel : ViewModel() {
                 week?.optInt("days") ?: 0, week?.optInt("goal") ?: 0, week?.optBoolean("met") ?: false,
             )
         }
-        InsightsData(parsed, daily("meals_logged"), daily("protein_target"), tr)
+        val habitsArr = root.optJSONArray("habits")
+        val habits = (0 until (habitsArr?.length() ?: 0)).map { i ->
+            val h = habitsArr!!.getJSONObject(i)
+            val pts = h.getJSONArray("points")
+            val streak = h.optJSONObject("streak")
+            HabitInsight(
+                name = h.optString("name"), kind = h.optString("kind"),
+                target = if (h.isNull("target")) null else h.optDouble("target").toFloat(),
+                unit = h.optString("unit"),
+                values = (0 until pts.length()).map { j -> pts.getJSONObject(j).optDouble("value").toFloat() },
+                hitPct = if (h.has("hit_pct") && !h.isNull("hit_pct")) h.optInt("hit_pct") else null,
+                hitDays = h.optInt("hit_days"), counted = h.optInt("counted_days"),
+                current = streak?.optInt("current") ?: 0, best = streak?.optInt("best") ?: 0,
+            )
+        }
+        val weight = root.optJSONObject("weight")
+        val body = weight?.let { w ->
+            val pts = w.optJSONArray("points")
+            val kg = mutableMapOf<String, Float>()
+            val avg = mutableMapOf<String, Float>()
+            for (i in 0 until (pts?.length() ?: 0)) {
+                val p = pts!!.getJSONObject(i)
+                kg[p.optString("date")] = p.optDouble("kg").toFloat()
+                avg[p.optString("date")] = p.optDouble("avg7").toFloat()
+            }
+            BodyInsight(
+                kg, avg,
+                if (w.has("latest_kg")) w.optDouble("latest_kg").toFloat() else null,
+                if (w.has("avg7")) w.optDouble("avg7").toFloat() else null,
+                if (w.has("change_kg")) w.optDouble("change_kg").toFloat() else null,
+            )
+        }
+        val sleepObj = root.optJSONObject("sleep")
+        val sleep = sleepObj?.let { sl ->
+            val pts = sl.optJSONArray("points")
+            val hours = mutableMapOf<String, Float>()
+            for (i in 0 until (pts?.length() ?: 0)) {
+                val p = pts!!.getJSONObject(i)
+                hours[p.optString("date")] = p.optDouble("hours").toFloat()
+            }
+            SleepInsight(
+                hours, sl.optInt("nights"),
+                if (sl.has("avg_hours")) sl.optDouble("avg_hours").toFloat() else null,
+                if (sl.has("avg_quality")) sl.optDouble("avg_quality").toFloat() else null,
+            )
+        }
+        InsightsData(parsed, daily("meals_logged"), daily("protein_target"), tr, habits, body, sleep)
     } catch (e: Exception) {
         null
     }
@@ -245,6 +308,10 @@ fun InsightsScreen(vm: InsightsViewModel = viewModel()) {
         }
         data.metrics["workout_days"]?.let { TrainingDaysCard(it, data.training) }
         data.metrics["volume"]?.let { if (it.byGroup.isNotEmpty()) VolumeCard(it) }
+        val dates = data.metrics["kcal"]?.points?.map { it.date } ?: emptyList()
+        if (data.habits.isNotEmpty()) HabitsInsightCard(data.habits)
+        data.body?.let { if (it.kg.isNotEmpty()) WeightInsightCard(it, dates) }
+        data.sleep?.let { if (it.nights > 0) SleepInsightCard(it, dates) }
     }
 }
 
@@ -369,6 +436,94 @@ private fun MetricCard(title: String, m: InsightMetric, headline: String, unit: 
 }
 
 @Composable
+private fun HabitsInsightCard(habits: List<HabitInsight>) {
+    BlakeCard {
+        SectionLabel("Habits")
+        habits.forEach { h ->
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(h.name.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "${h.current} day streak",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (h.current > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Row(Modifier.fillMaxWidth().height(32.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
+                    h.values.forEach { v ->
+                        val fraction = when {
+                            v <= 0f -> 0.12f
+                            h.kind == "count" && h.target != null && h.target > 0f -> (v / h.target).coerceIn(0.12f, 1f)
+                            else -> 1f
+                        }
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxHeight(fraction)
+                                .background(if (v > 0f) MaterialTheme.colorScheme.primary else MaterialTheme.blake.divider)
+                        )
+                    }
+                }
+                Text(
+                    (if (h.hitPct != null) "Done on ${h.hitDays} of ${h.counted} days (${h.hitPct}%). " else "") + "Best streak ${h.best}.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeightInsightCard(b: BodyInsight, dates: List<String>) {
+    val kg = dates.map { b.kg[it] }
+    val avg = dates.map { b.avg7[it] }
+    BlakeCard {
+        SectionLabel("Weight")
+        if (b.latest != null) {
+            Text(kgText(b.latest.toDouble()), style = MaterialTheme.typography.titleLarge)
+        }
+        Sparkline(
+            values = avg, goal = null, secondary = kg, connectGaps = true,
+            description = "Weight over ${dates.size} days with its 7-day average",
+        )
+        if (dates.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(shortDate(dates.first()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(shortDate(dates.last()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Text(
+            "Bright line: 7-day average. Dim line: each weigh-in." +
+                (b.change?.let { " Change over this range: " + (if (it > 0) "+" else "") + String.format(Locale.US, "%.1f", it) + " kg." } ?: ""),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun SleepInsightCard(sl: SleepInsight, dates: List<String>) {
+    BlakeCard {
+        SectionLabel("Sleep")
+        if (sl.avgHours != null) {
+            Text(String.format(Locale.US, "%.1f h a night", sl.avgHours), style = MaterialTheme.typography.titleLarge)
+        }
+        Sparkline(
+            values = dates.map { sl.hours[it] }, goal = 8f, connectGaps = true,
+            description = "Hours of sleep over ${dates.size} days",
+        )
+        Text(
+            "${sl.nights} night${if (sl.nights == 1) "" else "s"} logged" +
+                (sl.avgQuality?.let { " \u00b7 average quality " + String.format(Locale.US, "%.1f", it) + " of 5" } ?: "") +
+                ". Dashed line: 8 hours.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
 private fun TrainingDaysCard(m: InsightMetric, training: TrainingStreak?) {
     val days = m.points.count { it.value > 0f }
     BlakeCard {
@@ -414,12 +569,18 @@ private fun VolumeCard(m: InsightMetric) {
     }
 }
 
-/** A line through the logged days (gaps for unlogged ones), a dashed goal line and an
- * emphasised last point. */
+/** A line through the logged days (gaps for unlogged ones unless connectGaps), a dashed goal
+ * line, an optional dim second series drawn behind, and an emphasised last point. */
 @Composable
-private fun Sparkline(values: List<Float?>, goal: Float?, description: String) {
+private fun Sparkline(
+    values: List<Float?>,
+    goal: Float?,
+    description: String,
+    secondary: List<Float?>? = null,
+    connectGaps: Boolean = false,
+) {
     val line = MaterialTheme.colorScheme.primary
-    val goalColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val dim = MaterialTheme.colorScheme.onSurfaceVariant
     val baseline = MaterialTheme.blake.divider
     Canvas(
         Modifier
@@ -427,34 +588,41 @@ private fun Sparkline(values: List<Float?>, goal: Float?, description: String) {
             .height(80.dp)
             .semantics { contentDescription = description }
     ) {
-        val present = values.filterNotNull()
-        if (present.isEmpty()) return@Canvas
-        val top = max(present.max(), goal ?: 0f).coerceAtLeast(1f) * 1.1f
+        val all = values.filterNotNull() + (secondary?.filterNotNull() ?: emptyList())
+        if (all.isEmpty()) return@Canvas
+        val lo = if (secondary != null || connectGaps) all.min() else 0f
+        val hi = max(all.max(), goal ?: 0f)
+        val span = (hi - lo).coerceAtLeast(1f)
         val n = values.size
         fun x(i: Int) = if (n == 1) size.width / 2 else size.width * i / (n - 1)
-        fun y(v: Float) = size.height - (v / top) * size.height
+        fun y(v: Float) = size.height - ((v - lo) / span) * (size.height * 0.9f) - size.height * 0.05f
 
         drawLine(baseline, Offset(0f, size.height), Offset(size.width, size.height), strokeWidth = 1.dp.toPx())
-        if (goal != null) {
+        if (goal != null && goal >= lo) {
             drawLine(
-                goalColor, Offset(0f, y(goal)), Offset(size.width, y(goal)),
+                dim, Offset(0f, y(goal)), Offset(size.width, y(goal)),
                 strokeWidth = 1.dp.toPx(),
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f)),
             )
         }
-        var prev: Offset? = null
-        var last: Offset? = null
-        values.forEachIndexed { i, v ->
-            if (v == null) {
-                prev = null
-            } else {
-                val point = Offset(x(i), y(v))
-                prev?.let { drawLine(line, it, point, strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round) }
-                prev = point
-                last = point
+        fun series(vals: List<Float?>, color: androidx.compose.ui.graphics.Color, width: Float, emphasise: Boolean) {
+            var prev: Offset? = null
+            var last: Offset? = null
+            vals.forEachIndexed { i, v ->
+                if (v == null) {
+                    if (!connectGaps) prev = null
+                } else {
+                    val point = Offset(x(i), y(v))
+                    prev?.let { drawLine(color, it, point, strokeWidth = width, cap = StrokeCap.Round) }
+                    if (!connectGaps && prev == null && vals.getOrNull(i + 1) == null) drawCircle(color, radius = width, center = point)
+                    prev = point
+                    last = point
+                }
             }
+            if (emphasise) last?.let { drawCircle(color, radius = 4.dp.toPx(), center = it) }
         }
-        last?.let { drawCircle(line, radius = 4.dp.toPx(), center = it) }
+        secondary?.let { series(it, dim.copy(alpha = 0.55f), 1.dp.toPx(), false) }
+        series(values, line, 2.dp.toPx(), true)
     }
 }
 

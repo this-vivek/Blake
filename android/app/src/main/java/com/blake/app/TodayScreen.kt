@@ -77,6 +77,56 @@ class TodayViewModel : ViewModel() {
 
     var completingTaskIds by mutableStateOf<Set<Int>>(emptySet())
 
+    // Habits, weight and sleep: shown at once, delivered through the outbox like everything else.
+    var pendingHabit by mutableStateOf<Map<String, Double>>(emptyMap())
+    var pendingWeightKg by mutableStateOf<Double?>(null)
+    var pendingSleep by mutableStateOf<Pair<Double, Int?>?>(null)
+    var habitError by mutableStateOf("")
+
+    fun logHabit(context: Context, name: String, value: Double) {
+        pendingHabit = pendingHabit + (name to ((pendingHabit[name] ?: 0.0) + value))
+        viewModelScope.launch {
+            val body = JSONObject().put("name", name).put("value", value).toString()
+            OutboxRepository.enqueue(context, "/log/habit", "POST", body, "habit")
+        }
+    }
+
+    fun logWeight(context: Context, kg: Double) {
+        pendingWeightKg = kg
+        viewModelScope.launch {
+            OutboxRepository.enqueue(context, "/log/weight", "POST", JSONObject().put("kg", kg).toString(), "weight")
+        }
+    }
+
+    fun logSleep(context: Context, hours: Double, quality: Int?) {
+        pendingSleep = hours to quality
+        viewModelScope.launch {
+            val body = JSONObject().put("hours", hours)
+            quality?.let { body.put("quality", it) }
+            OutboxRepository.enqueue(context, "/log/sleep", "POST", body.toString(), "sleep")
+        }
+    }
+
+    fun createHabit(context: Context, name: String, kind: String, target: Double?, unit: String, onDone: () -> Unit) {
+        habitError = ""
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.createHabit(name.trim(), kind, target, unit) }
+            result.fold(
+                onSuccess = { json ->
+                    val error = JSONObject(json).optString("error")
+                    if (error.isNotBlank()) {
+                        habitError = error
+                    } else {
+                        loadToday(context)
+                        onDone()
+                    }
+                },
+                onFailure = { habitError = "Couldn't create the habit: ${it.message}" },
+            )
+        }
+    }
+
     // Training card: today's program day, where you're training, and starting the session.
     var trainingLocation by mutableStateOf("gym")
     var programMuscleGroup by mutableStateOf<String?>(null)
@@ -98,6 +148,9 @@ class TodayViewModel : ViewModel() {
         chatMealId = null
         chatMealItems = emptyList()
         editingSlot = null
+        pendingHabit = emptyMap()
+        pendingWeightKg = null
+        pendingSleep = null
     }
 
     fun loadProgram(context: Context) {
@@ -158,6 +211,14 @@ class TodayViewModel : ViewModel() {
                 BlakeDatabase.get(context).todayDao().upsert(
                     TodayCacheEntity(json = json, updatedAt = System.currentTimeMillis())
                 )
+                // What the server now reports includes everything that has been delivered, so the
+                // optimistic additions can go once nothing is waiting to be sent.
+                if (BlakeDatabase.get(context).outboxDao().getAllPending().isEmpty()) {
+                    pendingHabit = emptyMap()
+                    pendingWeightKg = null
+                    pendingSleep = null
+                    pendingSpend = 0.0
+                }
                 WidgetRefresh.update(context)
             }
         }

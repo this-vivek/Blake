@@ -144,6 +144,14 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
 
     /** Looks up per-100 g values for an unknown food (USDA, else a labelled AI estimate).
      * Stores nothing; approving is addCustomFood. */
+    /** Creates (or updates) a habit; logging one goes through the outbox instead. */
+    fun createHabit(name: String, kind: String, target: Double?, unit: String?): Result<String> {
+        val body = JSONObject().put("name", name).put("kind", kind)
+        target?.let { body.put("target", it) }
+        if (!unit.isNullOrBlank()) body.put("unit", unit)
+        return postJson("$baseUrl/habits", body.toString())
+    }
+
     fun proposeFood(name: String): Result<String> =
         postJson("$baseUrl/meals/propose", JSONObject().put("name", name).toString())
 

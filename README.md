@@ -17,6 +17,7 @@ Claude reads free text and photos and routes them to small, pluggable modules (m
 - **Insights:** 14 and 30 day trends with goal lines, streaks (daily with one grace day a week, weekly for training), volume by muscle group, and a weekly review written by Sonnet from a packet of numbers. Any number in the write-up that is not in the packet is rejected, and a code-written summary is used instead.
 - **Timeline:** one expandable card per day with totals and filters. Each meal is one line (tap for the foods); all training in a day is one row (tap for the warm-up moves and each exercise as sets x reps). Undone entries are struck through.
 - **Unknown foods:** the Unmatched screen looks up per-100 g values (USDA FoodData Central first, otherwise a clearly labelled AI estimate), shows where they came from, and saves them only when you approve.
+- **Habits, weight and sleep:** Today cards with a one-tap +1 for water (8 glasses a day by default), a weigh-in sheet, and a sleep sheet (hours and optional 1 to 5 quality). Insights shows habit streaks and bars, weight with its 7-day moving average, and sleep hours.
 - **Reminders:** an optional notification for a meal you have not logged, at the time you usually eat it (or one you set), at most 3 a day, with a "Log usual" button that logs it without opening the app.
 - **Settings:** server connection, goals, music playlist link, and data resets (reset today, reset all logs).
 
