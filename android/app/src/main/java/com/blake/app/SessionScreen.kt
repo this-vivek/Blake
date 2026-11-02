@@ -35,6 +35,8 @@ object WorkoutSessionStore {
     var pendingExercises: List<ExerciseItem> = emptyList()
 }
 
+private data class LoggedSet(val exercise: String, val group: String, val weightKg: Double, val reps: Int)
+
 class SessionViewModel : ViewModel() {
     var exercises: List<ExerciseItem> = emptyList()
     var currentIndex by mutableStateOf(0)
@@ -48,10 +50,25 @@ class SessionViewModel : ViewModel() {
     private var restJob: Job? = null
     private var initialized = false
 
+    private var sessionStartMs = 0L
+    var sessionEndMs by mutableStateOf<Long?>(null)
+    private val loggedSets = mutableListOf<LoggedSet>()
+    // PRs are only known once this session's sets reach the server (Epley is calculated
+    // there, never duplicated client-side) — populated by checkForPrs after sync.
+    var prsAfterSync by mutableStateOf<List<String>>(emptyList())
+
+    val volumeByGroup: Map<String, Double>
+        get() = loggedSets.groupBy { it.group }
+            .mapValues { (_, sets) -> sets.sumOf { it.weightKg * it.reps } }
+
+    val durationMs: Long
+        get() = (sessionEndMs ?: System.currentTimeMillis()) - sessionStartMs
+
     fun init(exercises: List<ExerciseItem>) {
         if (initialized) return
         initialized = true
         this.exercises = exercises
+        sessionStartMs = System.currentTimeMillis()
     }
 
     val currentExercise: ExerciseItem? get() = exercises.getOrNull(currentIndex)
@@ -111,6 +128,7 @@ class SessionViewModel : ViewModel() {
 
         setsLoggedForCurrent++
         sessionKcal += estimatedKcal
+        loggedSets.add(LoggedSet(ex.name, ex.group, weight, reps))
         statusText = "Set $setsLoggedForCurrent logged (syncing...)"
         startRestTimer()
 
@@ -151,6 +169,29 @@ class SessionViewModel : ViewModel() {
             suggestionText = ""
         } else {
             finished = true
+            sessionEndMs = System.currentTimeMillis()
+        }
+    }
+
+    /** Checks /today's server-computed PRs (Epley is only ever calculated there, see
+     * log_set) for any exercise logged this session. Called more than once from the summary
+     * screen since a set may still be mid-sync the first time this runs. */
+    fun checkForPrs(context: Context) {
+        val exerciseNames = loggedSets.map { it.exercise.lowercase() }.toSet()
+        if (exerciseNames.isEmpty()) return
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.today() }
+            result.onSuccess { json ->
+                val prsArr = JSONObject(json).optJSONObject("training")?.optJSONArray("prs_today")
+                    ?: return@onSuccess
+                val names = mutableListOf<String>()
+                for (i in 0 until prsArr.length()) {
+                    val name = prsArr.getJSONObject(i).optString("exercise")
+                    if (name in exerciseNames) names.add(name)
+                }
+                prsAfterSync = names
+            }
         }
     }
 }
@@ -254,10 +295,29 @@ fun SessionScreen(onFinish: () -> Unit, vm: SessionViewModel = viewModel()) {
     }
 }
 
+private fun formatDuration(ms: Long): String {
+    val totalMinutes = ms / 60_000
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
+}
+
 @Composable
 private fun SessionSummary(vm: SessionViewModel, onDone: () -> Unit) {
+    val context = LocalContext.current
+    // Checked twice: once immediately (covers an already-synced earlier set) and once after
+    // a few seconds (covers a set still mid-sync when this screen first appeared).
+    LaunchedEffect(Unit) {
+        vm.checkForPrs(context)
+        delay(4000)
+        vm.checkForPrs(context)
+    }
+
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -265,7 +325,24 @@ private fun SessionSummary(vm: SessionViewModel, onDone: () -> Unit) {
         Spacer(Modifier.height(16.dp))
         Text("Session complete", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(8.dp))
-        Text("${vm.sessionKcal.toInt()} kcal burned this session (approx.)", style = MaterialTheme.typography.bodyLarge)
+        Text(formatDuration(vm.durationMs), style = MaterialTheme.typography.bodyLarge)
+        Text("${vm.sessionKcal.toInt()} kcal burned (approx.)", style = MaterialTheme.typography.bodyLarge)
+
+        if (vm.volumeByGroup.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Text("Volume (weight × reps)", style = MaterialTheme.typography.titleSmall)
+            vm.volumeByGroup.toSortedMap().forEach { (group, volume) ->
+                Text("${group.replaceFirstChar { it.uppercase() }}: ${volume.toInt()} kg", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+
+        if (vm.prsAfterSync.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            vm.prsAfterSync.forEach { exercise ->
+                Text("🏆 PR: ${exercise.replaceFirstChar { it.uppercase() }}", style = MaterialTheme.typography.bodyLarge)
+            }
+        }
+
         Spacer(Modifier.height(24.dp))
         PopButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
             Text("Done", fontWeight = FontWeight.Bold)
