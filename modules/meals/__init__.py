@@ -87,6 +87,9 @@ FOODS = {
     "beetroot": (43, 1.6, 9.6, 0.2),
     "bell pepper": (31, 1.0, 6.0, 0.3),
     "okra": (33, 1.9, 7.5, 0.2),
+    "eggplant": (25, 1.0, 5.9, 0.2),
+    "bottle gourd": (14, 0.6, 3.4, 0.0),
+    "mushroom": (22, 3.1, 3.3, 0.3),
     "pumpkin": (26, 1.0, 6.5, 0.1),
     # proteins
     "mutton": (294, 25.0, 0.0, 21.0),
@@ -149,6 +152,26 @@ FOOD_SOURCES: dict[str, str] = {
     "paneer butter masala": "IFCT 2017",
     "aloo gobi": "IFCT 2017",
     "dal makhani": "IFCT 2017",
+    "eggplant": "USDA FoodData Central",
+    "bottle gourd": "USDA FoodData Central",
+    "mushroom": "USDA FoodData Central",
+}
+
+# Everyday names people actually say -> the key used in FOODS. A word in the input that has an
+# alias is matched as the aliased food ("chopped capsicum" -> bell pepper). Values may be
+# multi-word because FOODS keys can be.
+FOOD_ALIASES: dict[str, str] = {
+    "capsicum": "bell pepper", "shimla": "bell pepper", "peppers": "bell pepper",
+    "brinjal": "eggplant", "baingan": "eggplant", "aubergine": "eggplant",
+    "bhindi": "okra", "ladyfinger": "okra", "lady": "okra",
+    "palak": "spinach", "lauki": "bottle gourd", "dudhi": "bottle gourd",
+    "gobi": "cauliflower", "phulgobi": "cauliflower", "patta": "cabbage",
+    "matar": "peas", "tamatar": "tomato", "pyaz": "onion", "aloo": "potato",
+    "gajar": "carrot", "kheera": "cucumber", "mushrooms": "mushroom",
+    "dahi": "curd", "chana": "chickpea", "chickpeas": "chickpea", "moong": "lentils",
+    "anda": "egg", "eggs": "egg", "chapatti": "chapati", "phulka": "roti",
+    "tomatoes": "tomato", "potatoes": "potato", "onions": "onion", "carrots": "carrot",
+    "bananas": "banana", "apples": "apple", "oranges": "orange", "mangoes": "mango",
 }
 
 
@@ -198,6 +221,7 @@ HOUSEHOLD_UNITS: dict[tuple[str, str], float] = {
     ("potato", "piece"): 150.0, ("sweet potato", "piece"): 150.0,
     ("tomato", "piece"): 120.0, ("onion", "piece"): 110.0, ("carrot", "piece"): 60.0,
     ("cucumber", "piece"): 200.0,
+    ("bell pepper", "piece"): 120.0, ("bell pepper", "katori"): 80.0,
 }
 
 # When someone says "with spinach" and gives no amount, log a standard serving instead of
@@ -297,8 +321,13 @@ def _match(name: str, db=None) -> tuple[str, tuple] | None:
     foods = {**FOODS, **_user_foods(db)} if db is not None else FOODS
     if name in foods:
         return name, foods[name]
+    if FOOD_ALIASES.get(name) in foods:
+        return FOOD_ALIASES[name], foods[FOOD_ALIASES[name]]
     primary = re.sub(r"\([^)]*\)", " ", name)
     raw_words = set(primary.replace(",", " ").split())
+    for word in list(raw_words):
+        if word in FOOD_ALIASES:
+            raw_words |= set(FOOD_ALIASES[word].split())
     filtered_words = {w for w in raw_words if w not in _NOISE_WORDS}
     # Try the unfiltered words first: a noise word can be part of a real food name ("sweet"
     # in "sweet potato"), and stripping it first would match the plain "potato" entry

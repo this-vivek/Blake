@@ -165,6 +165,17 @@ def test_log_meal_unknown_unit_for_food_is_unmatched_not_guessed(reg, db):
     assert out["unknown_items"] == ["roti"]
 
 
+@pytest.mark.parametrize("said,expected", [
+    ("capsicum", "bell pepper"), ("chopped capsicum", "bell pepper"), ("brinjal", "eggplant"),
+    ("bhindi", "okra"), ("palak", "spinach"), ("lauki sabzi", "bottle gourd"),
+    ("mushrooms", "mushroom"), ("aloo", "potato"), ("sweet potato", "sweet potato"),
+])
+def test_everyday_indian_names_match_the_table(reg, db, said, expected):
+    out = reg.call("meals__log_meal", {"items": [{"name": said, "grams": 100}]}, db)
+    assert out["unknown_items"] == [], said
+    assert out["logged"][0]["name"] == expected
+
+
 def test_log_meal_food_without_amount_logs_an_assumed_serving(reg, db):
     # "2 roti with spinach": spinach is in the table, the amount was just not said.
     out = reg.call("meals__log_meal", {"meal": "breakfast", "items": [
