@@ -32,7 +32,8 @@
 
         <receiver
             android:name=".BlakeWidgetReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:label="Blake: Today">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -50,5 +51,23 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+        <activity
+            android:name=".QuickLogActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Blake.Translucent" />
+
+        <receiver
+            android:name=".LogAnythingWidgetReceiver"
+            android:exported="true"
+            android:label="Blake: Log anything">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/log_anything_widget_info" />
+        </receiver>
     </application>
 </manifest>

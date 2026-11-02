@@ -233,6 +233,19 @@ fun SettingsScreen(
 
         QuietButton("Unmatched items", onClick = onNavigateToUnmatched)
 
+        val version = remember {
+            try {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
+            } catch (e: Exception) {
+                "unknown"
+            }
+        }
+        Text(
+            "Version $version",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
         DataCard(vm, context, onDataReset)
     }
 }

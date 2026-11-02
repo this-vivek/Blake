@@ -301,7 +301,7 @@ private fun exerciseLine(name: String, sets: List<TimelineEntry>): String {
 
 /** All of a day's sets and warm-up moves become one "Training" row. Opening it lists the
  * warm-up moves once and each exercise once with its sets x reps. */
-private fun collapseTraining(day: List<TimelineEntry>): List<TimelineEntry> {
+internal fun collapseTraining(day: List<TimelineEntry>): List<TimelineEntry> {
     val isTraining = { e: TimelineEntry -> e.kind == "set" || e.kind == "warmup" }
     val others = day.filterNot(isTraining)
     val live = day.filter { isTraining(it) && !it.voided }
