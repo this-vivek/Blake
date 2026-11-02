@@ -17,3 +17,9 @@ fun estimateKcalForSet(muscleGroup: String?, bodyweightKg: Double = DEFAULT_BODY
     val met = MET_BY_GROUP[muscleGroup] ?: DEFAULT_MET
     return Math.round(met * bodyweightKg * 3.5 / 200 * SET_DURATION_MIN * 10) / 10.0
 }
+
+private const val WARMUP_MET = 3.5
+
+/** Mirror of modules/workouts log_warmup, for instant feedback; the server's value is final. */
+fun estimateKcalForWarmup(seconds: Int, bodyweightKg: Double = DEFAULT_BODYWEIGHT_KG): Double =
+    Math.round(WARMUP_MET * bodyweightKg * 3.5 / 200 * (seconds / 60.0) * 10) / 10.0

@@ -12,7 +12,7 @@ Claude reads free text and photos and routes them to small, pluggable modules (m
 
 - **Today:** a kcal ring that collapses into the top bar as you scroll, one "Log <meal>" action chosen by the time of day (with your usual combo), protein progress, and Training, Spend and Tasks cards.
 - **Log anything (the `+` button):** text, camera or gallery photo. Everything is saved immediately; the result stays below with editable grams, Edit and Undo.
-- **Workout session:** starts from your weekly program, always with a warm-up. Large weight and reps steppers, suggested weight from progressive overload, rest timer, elapsed time and kcal burned. Sets are saved as you log them, so closing the app mid-session loses nothing. Starting a session can open YouTube Music.
+- **Workout session:** starts from your weekly program, always with a warm-up (which also counts toward kcal burned). Every move has numbered steps and a looping start/end photo animation, plus a "Watch a demo" button that opens a video search. Large weight and reps steppers, suggested weight from progressive overload, rest timer, elapsed time and kcal burned. Sets are saved as you log them, so closing the app mid-session loses nothing. Starting a session can open YouTube Music.
 - **Spend:** amount, description, category, and where it was spent (location is optional).
 - **Timeline:** one expandable card per day with totals, filters by type, struck-through undone entries.
 - **Unknown foods:** the Unmatched screen looks up per-100 g values (USDA FoodData Central first, otherwise a clearly labelled AI estimate), shows where they came from, and saves them only when you approve.
@@ -84,7 +84,7 @@ The look comes from the Blake Design System: near-black surfaces, one soft-gold 
 
 ## Known limits
 
-- Some home exercises (burpees, jumping jacks, high knees, pike push-ups, wall sit and a few others) have no photo yet and show a placeholder.
+- Exercise steps and photos come from `tools/build_exercise_guide.py` (public-domain free-exercise-db, plus steps written for moves it lacks). Some home exercises (burpees, jumping jacks, high knees, pike push-ups, wall sit and a few others) have steps but no photos. There is no free video library for every move, so demos open a YouTube search.
 - Apps cannot start playback inside YouTube Music directly. The app opens it (or your playlist link) and sends a play command, which works when YouTube Music was your most recent player; otherwise tap play.
 - Reset actions undo log entries; they keep goals, the program, custom foods and recipes.
 - Single user: one shared API key and one database.

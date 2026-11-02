@@ -215,6 +215,14 @@ private fun buildEntry(
             Format.currency(amount), voided, pending, spend = if (voided) 0.0 else amount,
         )
     }
+    "warmup" -> {
+        val seconds = p.optDouble("seconds")
+        TimelineEntry(
+            id, module, ts, "Warm-up",
+            if (seconds >= 60) "${(seconds / 60).toInt()} min" else "${seconds.toInt()} sec",
+            "${Format.kcal(p.optDouble("kcal_burned"))} burned", voided, pending,
+        )
+    }
     "task" -> TimelineEntry(id, module, ts, p.optString("title"), "Added", "", voided, pending)
     "task_done" -> TimelineEntry(id, module, ts, p.optString("title"), "Completed", "", voided, pending, isTaskDone = !voided)
     "unmatched" -> TimelineEntry(

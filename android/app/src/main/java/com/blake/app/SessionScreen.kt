@@ -2,6 +2,8 @@ package com.blake.app
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,6 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -198,7 +201,20 @@ class SessionViewModel : ViewModel() {
         }
     }
 
+    /** A finished warm-up move counts as activity: kcal estimated here for instant feedback,
+     * and queued to the server (POST /log/warmup), which computes the real number. */
+    private fun logWarmup(context: Context, ex: ExerciseItem) {
+        val timed = WarmUp.seconds(ex.reps)
+        val seconds = if (timed > 0) timed else targetReps(ex.reps) * 3
+        sessionKcal += estimateKcalForWarmup(seconds)
+        viewModelScope.launch {
+            val body = JSONObject().put("seconds", seconds).toString()
+            OutboxRepository.enqueue(context, "/log/warmup", "POST", body, "warmup")
+        }
+    }
+
     fun nextExercise(context: Context) {
+        currentExercise?.takeIf { it.group == WarmUp.GROUP }?.let { logWarmup(context, it) }
         restJob?.cancel()
         restSecondsRemaining = 0
         if (currentIndex < exercises.lastIndex) {
@@ -416,25 +432,7 @@ private fun WarmupBody(vm: SessionViewModel, ex: ExerciseItem) {
             left--
         }
     }
-    val imageUrl = exerciseImageUrl(ex.name)
-    Surface(
-        modifier = Modifier.fillMaxWidth().height(200.dp),
-        shape = RoundedCornerShape(Radius.lg),
-        color = MaterialTheme.colorScheme.surface,
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            if (imageUrl != null) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = ex.name,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                NoPhoto("Warm-up")
-            }
-        }
-    }
+    ExerciseMedia(ex.name, "Warm-up", 200.dp)
     BlakeCard {
         SectionLabel("Warm-up")
         Text(ex.name, style = MaterialTheme.typography.displaySmall)
@@ -447,29 +445,12 @@ private fun WarmupBody(vm: SessionViewModel, ex: ExerciseItem) {
             Text(ex.note, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+    HowTo(ex.name)
 }
 
 @Composable
 private fun ExerciseBody(vm: SessionViewModel, ex: ExerciseItem) {
-    val imageUrl = exerciseImageUrl(ex.name)
-    Surface(
-        modifier = Modifier.fillMaxWidth().height(236.dp),
-        shape = RoundedCornerShape(Radius.lg),
-        color = MaterialTheme.colorScheme.surface,
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            if (imageUrl != null) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = ex.name,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                NoPhoto(ex.group)
-            }
-        }
-    }
+    ExerciseMedia(ex.name, ex.group, 236.dp)
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(ex.name, style = MaterialTheme.typography.titleLarge)
@@ -515,6 +496,77 @@ private fun ExerciseBody(vm: SessionViewModel, ex: ExerciseItem) {
     if (vm.statusText.isNotBlank()) {
         Text(vm.statusText, style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    HowTo(ex.name)
+}
+
+/** The exercise photos loop between the start and end position (a short animation); moves
+ * without a second photo show the single photo, or a placeholder when there is none. */
+@Composable
+private fun ExerciseMedia(name: String, group: String, height: Dp) {
+    val context = LocalContext.current
+    val frames = remember(name) {
+        ExerciseGuide.get(context, name)?.frames?.takeIf { it.size >= 2 }
+            ?: listOfNotNull(exerciseImageUrl(name))
+    }
+    var index by remember(name) { mutableStateOf(0) }
+    LaunchedEffect(name) {
+        if (frames.size > 1) {
+            while (true) {
+                delay(1100)
+                index = (index + 1) % frames.size
+            }
+        }
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth().height(height),
+        shape = RoundedCornerShape(Radius.lg),
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            if (frames.isEmpty()) {
+                NoPhoto(group)
+            } else {
+                Crossfade(targetState = index, animationSpec = tween(450), label = "exercise-frames") { i ->
+                    AsyncImage(
+                        model = frames[i % frames.size],
+                        contentDescription = name,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Numbered steps for the move, plus a button that opens a video demo. */
+@Composable
+private fun HowTo(name: String) {
+    val context = LocalContext.current
+    val guide = remember(name) { ExerciseGuide.get(context, name) }
+    BlakeCard {
+        SectionLabel("How to do it")
+        if (guide != null && guide.steps.isNotEmpty()) {
+            guide.steps.forEachIndexed { i, step ->
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                    Text(
+                        "${i + 1}",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.width(18.dp),
+                    )
+                    Text(step, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                }
+            }
+        } else {
+            Text(
+                "No written steps for this move yet.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        SecondaryButton("Watch a demo", onClick = { ExerciseGuide.openDemo(context, name) })
     }
 }
 
