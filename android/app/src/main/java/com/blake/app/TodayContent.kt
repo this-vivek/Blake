@@ -61,6 +61,14 @@ fun TodayScreen(
         vm.loadProgram(context)
     }
 
+    // Opened from the widget's "Start session": go once today's plan has loaded.
+    LaunchedEffect(vm.programLoaded, LaunchRequests.startSession) {
+        if (LaunchRequests.startSession && vm.programLoaded) {
+            LaunchRequests.startSession = false
+            if (!vm.programIsRest) vm.startSession(context, onStartSession)
+        }
+    }
+
     val scroll = rememberScrollState()
     val density = LocalDensity.current
     val collapseRangePx = with(density) { (HERO_EXPANDED - HERO_COLLAPSED).toPx() }

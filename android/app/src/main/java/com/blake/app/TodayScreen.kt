@@ -158,6 +158,7 @@ class TodayViewModel : ViewModel() {
                 BlakeDatabase.get(context).todayDao().upsert(
                     TodayCacheEntity(json = json, updatedAt = System.currentTimeMillis())
                 )
+                WidgetRefresh.update(context)
             }
         }
     }

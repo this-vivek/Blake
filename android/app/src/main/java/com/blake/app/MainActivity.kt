@@ -1,5 +1,6 @@
 package com.blake.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -31,11 +32,22 @@ import com.blake.app.ui.theme.blake
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+/** Set by the home-screen widget's "Start session" button; Today acts on it once its plan loads. */
+object LaunchRequests {
+    var startSession by mutableStateOf(false)
+}
+
 class MainActivity : ComponentActivity() {
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra("start_session", false)) LaunchRequests.startSession = true
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         Reminders.scheduleIfEnabled(this)
+        if (intent?.getBooleanExtra("start_session", false) == true) LaunchRequests.startSession = true
         setContent {
             BlakeTheme {
                 // Scaffold owns inset handling (via bottomBar/innerPadding) for edge-to-edge,

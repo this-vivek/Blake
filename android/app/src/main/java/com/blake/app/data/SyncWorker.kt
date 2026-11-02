@@ -13,6 +13,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.blake.app.BlakeApi
 import com.blake.app.Prefs
+import com.blake.app.WidgetRefresh
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -29,6 +30,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
         if (pending.isEmpty()) return Result.success()
 
         var anyFailed = false
+        var anyDelivered = false
         for (item in pending) {
             val result = if (item.kind == "chat") sendChat(api, item) else {
                 api.rawRequest(item.method, item.path, item.bodyJson)
@@ -37,6 +39,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
                 onSuccess = { json ->
                     reconcile(db, item, json)
                     db.outboxDao().delete(item)
+                    anyDelivered = true
                 },
                 onFailure = {
                     anyFailed = true
@@ -45,6 +48,17 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
                     )
                 }
             )
+        }
+        if (anyDelivered) {
+            // The widget reads the saved /today, so refresh that now that the writes landed.
+            try {
+                api.today().getOrNull()?.let { fresh ->
+                    db.todayDao().upsert(TodayCacheEntity(json = fresh, updatedAt = System.currentTimeMillis()))
+                }
+            } catch (e: Exception) {
+                // offline again or server busy: the widget keeps its last numbers
+            }
+            WidgetRefresh.update(applicationContext)
         }
         return if (anyFailed) Result.retry() else Result.success()
     }

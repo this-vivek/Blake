@@ -86,6 +86,9 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
+    // Home-screen widget (P7). Glance is the Compose-style widget API named in ROADMAP-NEXTGEN.md.
+    implementation("androidx.glance:glance-appwidget:1.1.0")
+
     // Screenshot testing (pre-approved in ROADMAP-NEXTGEN.md): JVM-based via Robolectric, no
     // emulator needed in CI.
     testImplementation(platform("androidx.compose:compose-bom:2024.06.00"))
