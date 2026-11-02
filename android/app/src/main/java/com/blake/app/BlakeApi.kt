@@ -51,6 +51,10 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
 
     fun today(): Result<String> = get("$baseUrl/today")
 
+    /** Fire-and-forget on app foreground — starts the free-tier host's cold boot while
+     * cached data is already on screen, so the next real request doesn't eat that latency. */
+    fun health(): Result<String> = get("$baseUrl/health")
+
     fun history(module: String, limit: Int = 20): Result<String> =
         get("$baseUrl/history?module=$module&limit=$limit")
 

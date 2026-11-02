@@ -19,6 +19,7 @@ import com.blake.app.data.TodayCacheEntity
 import com.blake.app.ui.theme.Format
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -46,6 +47,7 @@ private sealed class TimelineRow {
 
 class TimelineViewModel : ViewModel() {
     var summaryText by mutableStateOf("Loading summary...")
+    var summaryUpdatedAt by mutableStateOf<Long?>(null)
     var selectedModule by mutableStateOf(MODULES.first())
     var networkEntries by mutableStateOf<List<TimelineEntry>>(emptyList())
     var pendingEntries by mutableStateOf<List<TimelineEntry>>(emptyList())
@@ -66,15 +68,20 @@ class TimelineViewModel : ViewModel() {
     fun loadSummary(context: Context) {
         viewModelScope.launch {
             val cached = BlakeDatabase.get(context).todayDao().observe().first()
-            if (cached != null) summaryText = formatSummary(cached.json)
+            if (cached != null) {
+                summaryText = formatSummary(cached.json)
+                summaryUpdatedAt = cached.updatedAt
+            }
         }
         val api = Prefs.apiFor(context)
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) { api.today() }
             result.onSuccess { json ->
+                val now = System.currentTimeMillis()
                 summaryText = formatSummary(json)
+                summaryUpdatedAt = now
                 BlakeDatabase.get(context).todayDao().upsert(
-                    TodayCacheEntity(json = json, updatedAt = System.currentTimeMillis())
+                    TodayCacheEntity(json = json, updatedAt = now)
                 )
             }
             result.onFailure {
@@ -145,6 +152,33 @@ private fun formatSummary(json: String): String {
         parts.add("Open tasks: ${it.length()}")
     }
     return if (parts.isEmpty()) "No data yet" else parts.joinToString("   |   ")
+}
+
+@Composable
+private fun UpdatedAgoText(updatedAt: Long?) {
+    if (updatedAt == null) return
+    var now by remember(updatedAt) { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(updatedAt) {
+        while (true) {
+            delay(30_000)
+            now = System.currentTimeMillis()
+        }
+    }
+    Text(
+        "Updated ${formatAgo(updatedAt, now)}",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+private fun formatAgo(updatedAt: Long, now: Long): String {
+    val minutes = (now - updatedAt) / 60_000
+    return when {
+        minutes < 1 -> "just now"
+        minutes < 60 -> "${minutes}m ago"
+        minutes < 1440 -> "${minutes / 60}h ago"
+        else -> "${minutes / 1440}d ago"
+    }
 }
 
 private fun isSameDay(a: Calendar, b: Calendar) =
@@ -232,9 +266,10 @@ fun TimelineScreen(vm: TimelineViewModel = viewModel()) {
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text("Today", style = MaterialTheme.typography.titleMedium)
-        Text(vm.summaryText, modifier = Modifier.padding(vertical = 8.dp))
+        Text(vm.summaryText, modifier = Modifier.padding(top = 8.dp))
+        UpdatedAgoText(vm.summaryUpdatedAt)
 
-        Divider()
+        Divider(modifier = Modifier.padding(top = 8.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),

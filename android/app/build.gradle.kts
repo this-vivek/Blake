@@ -69,6 +69,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.2")
+    // Provides ComponentActivity.lifecycleScope, used for the foreground health ping (P2.4)
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     // Navigation Compose: pre-approved in ROADMAP-NEXTGEN.md for the bottom-nav shell (P1.3)

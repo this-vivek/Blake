@@ -14,8 +14,11 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import com.blake.app.ui.theme.BlakeTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -29,6 +32,16 @@ class MainActivity : ComponentActivity() {
                     BlakeApp()
                 }
             }
+        }
+    }
+
+    // Free-tier hosting cold-starts after ~15min idle; pinging on foreground (not waiting on
+    // the response) means that cold boot runs while already-cached data is on screen, instead
+    // of being eaten by whichever request the user happens to trigger first.
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch(Dispatchers.IO) {
+            Prefs.apiFor(this@MainActivity).health()
         }
     }
 }
