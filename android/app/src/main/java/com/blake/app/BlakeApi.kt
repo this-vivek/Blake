@@ -49,6 +49,8 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
 
     fun summary(): Result<String> = get("$baseUrl/summary")
 
+    fun today(): Result<String> = get("$baseUrl/today")
+
     fun history(module: String, limit: Int = 20): Result<String> =
         get("$baseUrl/history?module=$module&limit=$limit")
 

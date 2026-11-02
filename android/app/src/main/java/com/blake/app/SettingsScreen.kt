@@ -13,7 +13,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.blake.app.data.BlakeDatabase
+import com.blake.app.data.GoalsCacheEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -27,23 +30,39 @@ class SettingsViewModel : ViewModel() {
     var goalsStatus by mutableStateOf("")
     var goalsLoading by mutableStateOf(false)
 
+    private fun applyGoalsJson(json: String) {
+        val obj = JSONObject(json)
+        if (obj.has("kcal")) kcalGoal = obj.optDouble("kcal").toInt().toString()
+        if (obj.has("protein_g")) proteinGoal = obj.optDouble("protein_g").toInt().toString()
+        if (obj.has("daily_spend")) spendGoal = obj.optDouble("daily_spend").toInt().toString()
+        if (obj.has("workout_days_per_week")) {
+            workoutDaysGoal = obj.optInt("workout_days_per_week").toString()
+        }
+        if (obj.has("bodyweight_kg")) {
+            bodyweightGoal = obj.optDouble("bodyweight_kg").toString()
+        }
+    }
+
+    /** Cache-first: render the last-known goals from Room immediately (if any), then refresh
+     * from the network and persist the fresh copy for next time. */
     fun loadGoals(context: Context) {
         goalsLoading = true
+        viewModelScope.launch {
+            val cached = BlakeDatabase.get(context).goalsDao().observe().first()
+            if (cached != null) {
+                applyGoalsJson(cached.json)
+                goalsLoading = false
+            }
+        }
         val api = Prefs.apiFor(context)
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) { api.getGoals() }
             goalsLoading = false
             result.onSuccess { json ->
-                val obj = JSONObject(json)
-                if (obj.has("kcal")) kcalGoal = obj.optDouble("kcal").toInt().toString()
-                if (obj.has("protein_g")) proteinGoal = obj.optDouble("protein_g").toInt().toString()
-                if (obj.has("daily_spend")) spendGoal = obj.optDouble("daily_spend").toInt().toString()
-                if (obj.has("workout_days_per_week")) {
-                    workoutDaysGoal = obj.optInt("workout_days_per_week").toString()
-                }
-                if (obj.has("bodyweight_kg")) {
-                    bodyweightGoal = obj.optDouble("bodyweight_kg").toString()
-                }
+                applyGoalsJson(json)
+                BlakeDatabase.get(context).goalsDao().upsert(
+                    GoalsCacheEntity(json = json, updatedAt = System.currentTimeMillis())
+                )
             }
             result.onFailure { goalsStatus = "Couldn't load goals: ${it.message}" }
         }
@@ -62,7 +81,17 @@ class SettingsViewModel : ViewModel() {
                 )
             }
             goalsStatus = result.fold(
-                onSuccess = { "Goals saved" },
+                onSuccess = { json ->
+                    // PUT /goals returns {"updated": ..., "goals": {...}} — the flat "goals"
+                    // object is what GET /goals returns and what applyGoalsJson expects.
+                    val flatGoals = JSONObject(json).optJSONObject("goals")
+                    if (flatGoals != null) {
+                        BlakeDatabase.get(context).goalsDao().upsert(
+                            GoalsCacheEntity(json = flatGoals.toString(), updatedAt = System.currentTimeMillis())
+                        )
+                    }
+                    "Goals saved"
+                },
                 onFailure = { "Error: ${it.message}" }
             )
         }

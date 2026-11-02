@@ -131,6 +131,7 @@ class GoalsRequest(BaseModel):
     protein_g: float | None = None
     daily_spend: float | None = None
     workout_days_per_week: int | None = None
+    bodyweight_kg: float | None = None
 
 
 @app.put("/goals", dependencies=[Depends(require_api_key)])

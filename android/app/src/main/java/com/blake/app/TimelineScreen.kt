@@ -15,9 +15,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blake.app.data.BlakeDatabase
+import com.blake.app.data.TodayCacheEntity
 import com.blake.app.ui.theme.Format
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -59,14 +61,27 @@ class TimelineViewModel : ViewModel() {
                 .sortedByDescending { it.ts }
         }
 
+    /** Cache-first: render the last-known /today payload from Room immediately (if any),
+     * then refresh from the network and persist the fresh copy for next time. */
     fun loadSummary(context: Context) {
+        viewModelScope.launch {
+            val cached = BlakeDatabase.get(context).todayDao().observe().first()
+            if (cached != null) summaryText = formatSummary(cached.json)
+        }
         val api = Prefs.apiFor(context)
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { api.summary() }
-            summaryText = result.fold(
-                onSuccess = { formatSummary(it) },
-                onFailure = { "Couldn't load summary: ${it.message}" }
-            )
+            val result = withContext(Dispatchers.IO) { api.today() }
+            result.onSuccess { json ->
+                summaryText = formatSummary(json)
+                BlakeDatabase.get(context).todayDao().upsert(
+                    TodayCacheEntity(json = json, updatedAt = System.currentTimeMillis())
+                )
+            }
+            result.onFailure {
+                if (summaryText == "Loading summary...") {
+                    summaryText = "Couldn't load summary: ${it.message}"
+                }
+            }
         }
     }
 
@@ -111,16 +126,22 @@ class TimelineViewModel : ViewModel() {
     }
 }
 
+// Parses GET /today's aggregated shape (app/today.py's build_today), not /summary's —
+// this is the one place that surfaces kcal_burned_today, which nothing else in the app shows.
 private fun formatSummary(json: String): String {
     val obj = JSONObject(json)
     val parts = mutableListOf<String>()
-    obj.optJSONObject("meals")?.optJSONObject("today")?.let {
-        parts.add("Meals today: ${Format.kcal(it.optDouble("kcal", 0.0))}")
+    obj.optJSONObject("nutrition")?.optJSONObject("kcal")?.let {
+        parts.add("Meals today: ${Format.kcal(it.optDouble("actual", 0.0))}")
     }
-    obj.optJSONObject("expenses")?.optJSONObject("today")?.let {
-        parts.add("Spent today: ${Format.currency(it.optDouble("total", 0.0))}")
+    obj.optJSONObject("spend")?.let {
+        parts.add("Spent today: ${Format.currency(it.optDouble("actual", 0.0))}")
     }
-    obj.optJSONObject("tasks")?.optJSONArray("open_tasks")?.let {
+    obj.optJSONObject("training")?.let {
+        val kcalBurned = it.optDouble("kcal_burned_today", 0.0)
+        if (kcalBurned > 0) parts.add("Burned today: ${Format.kcal(kcalBurned)}")
+    }
+    obj.optJSONArray("open_tasks")?.let {
         parts.add("Open tasks: ${it.length()}")
     }
     return if (parts.isEmpty()) "No data yet" else parts.joinToString("   |   ")
