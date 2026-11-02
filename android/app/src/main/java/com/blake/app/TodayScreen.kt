@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -17,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -25,13 +27,18 @@ import coil.compose.AsyncImage
 import com.blake.app.data.BlakeDatabase
 import com.blake.app.data.CachedEventEntity
 import com.blake.app.data.OutboxRepository
+import com.blake.app.data.TodayCacheEntity
 import com.blake.app.ui.theme.Format
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
+
+private val MEAL_SLOTS = listOf("breakfast", "lunch", "dinner", "snack")
+private val SLOT_LABELS = mapOf("breakfast" to "B", "lunch" to "L", "dinner" to "D", "snack" to "S")
 
 private fun defaultMealForHour(hour: Int): String = when (hour) {
     in 5..10 -> "breakfast"
@@ -42,6 +49,12 @@ private fun defaultMealForHour(hour: Int): String = when (hour) {
 }
 
 class TodayViewModel : ViewModel() {
+    var todayJson by mutableStateOf<JSONObject?>(null)
+    // ✓ shown for a slot the moment it's logged, before the server round-trip confirms it —
+    // /today's own meal_slots_logged won't reflect a pending outbox write until it syncs.
+    var locallyLoggedSlots by mutableStateOf<Set<String>>(emptySet())
+    var editingSlot by mutableStateOf<String?>(null)
+
     var mealType by mutableStateOf(
         defaultMealForHour(Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
     )
@@ -52,6 +65,33 @@ class TodayViewModel : ViewModel() {
     var logResultText by mutableStateOf("")
 
     var mealRefreshing by mutableStateOf(false)
+
+    /** Cache-first: render the last-known /today payload from Room immediately (if any),
+     * then refresh from the network and persist the fresh copy for next time. */
+    fun loadToday(context: Context) {
+        viewModelScope.launch {
+            val cached = BlakeDatabase.get(context).todayDao().observe().first()
+            if (cached != null) todayJson = JSONObject(cached.json)
+        }
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.today() }
+            result.onSuccess { json ->
+                todayJson = JSONObject(json)
+                BlakeDatabase.get(context).todayDao().upsert(
+                    TodayCacheEntity(json = json, updatedAt = System.currentTimeMillis())
+                )
+            }
+        }
+    }
+
+    fun startEditingSlot(context: Context, slot: String) {
+        editingSlot = slot
+        mealType = slot
+        mealNames = emptyList()
+        mealTotalText = ""
+        suggestMeal(context)
+    }
 
     fun suggestMeal(context: Context) {
         mealLoading = true
@@ -117,17 +157,19 @@ class TodayViewModel : ViewModel() {
             if (grams != null && grams > 0) mealNames[i] to grams else null
         }
         if (items.isEmpty()) return
+        val slot = mealType
+        locallyLoggedSlots = locallyLoggedSlots + slot
         viewModelScope.launch {
             val itemsJson = JSONArray()
             items.forEach { (name, grams) ->
                 itemsJson.put(JSONObject().put("name", name).put("grams", grams))
             }
-            val bodyJson = JSONObject().put("meal", mealType).put("items", itemsJson).toString()
+            val bodyJson = JSONObject().put("meal", slot).put("items", itemsJson).toString()
             val outboxId = OutboxRepository.enqueue(context, "/log/meal", "POST", bodyJson, "meal")
 
             // Optimistic row: shows what was submitted, not fabricated macros — real numbers
             // land once SyncWorker reconciles this with the server's response.
-            val payload = JSONObject().put("meal", mealType).put("items", itemsJson)
+            val payload = JSONObject().put("meal", slot).put("items", itemsJson)
             BlakeDatabase.get(context).eventDao().upsert(
                 CachedEventEntity(
                     id = -outboxId,
@@ -138,7 +180,32 @@ class TodayViewModel : ViewModel() {
                     pending = true,
                 )
             )
-            logResultText = "Logged for $mealType — syncing..."
+            logResultText = "Logged for $slot — syncing..."
+            editingSlot = null
+        }
+    }
+
+    /** One-tap log of a slot's established "usual" combo (app/today.py's usual_combo) —
+     * skips the suggestion editor entirely, using the same outbox/optimistic-row pattern as
+     * logMeal so it works offline too. */
+    fun logUsual(context: Context, slot: String, usual: JSONObject) {
+        val items = usual.optJSONArray("items") ?: return
+        locallyLoggedSlots = locallyLoggedSlots + slot
+        viewModelScope.launch {
+            val bodyJson = JSONObject().put("meal", slot).put("items", items).toString()
+            val outboxId = OutboxRepository.enqueue(context, "/log/meal", "POST", bodyJson, "meal")
+            val payload = JSONObject().put("meal", slot).put("items", items)
+            BlakeDatabase.get(context).eventDao().upsert(
+                CachedEventEntity(
+                    id = -outboxId,
+                    module = "meals",
+                    kind = "meal",
+                    ts = System.currentTimeMillis() / 1000.0,
+                    payloadJson = payload.toString(),
+                    pending = true,
+                )
+            )
+            logResultText = "Logged usual $slot — syncing..."
         }
     }
 
@@ -233,61 +300,25 @@ private fun parseChatResult(json: String): Pair<String, List<Pair<String, Int>>>
     return text to ids
 }
 
+private fun optionalDouble(obj: JSONObject?, key: String): Double? {
+    if (obj == null || !obj.has(key) || obj.isNull(key)) return null
+    return obj.optDouble(key)
+}
+
 @Composable
 fun TodayScreen(vm: TodayViewModel = viewModel()) {
     val context = LocalContext.current
 
-    LaunchedEffect(Unit) {
-        if (vm.mealNames.isEmpty()) vm.suggestMeal(context)
-    }
+    LaunchedEffect(Unit) { vm.loadToday(context) }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "${vm.mealType.replaceFirstChar { it.uppercase() }} suggestion",
-                style = MaterialTheme.typography.titleMedium
-            )
-            TextButton(onClick = { vm.refreshMeal(context) }, enabled = !vm.mealRefreshing) {
-                Text(if (vm.mealRefreshing) "Refreshing..." else "🔄 Refresh")
-            }
-        }
+        NutritionCard(vm, context)
 
-        if (vm.mealLoading) {
-            Text("Loading...")
-        } else {
-            vm.mealNames.forEachIndexed { idx, name ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(name, modifier = Modifier.weight(1f))
-                    OutlinedTextField(
-                        value = vm.mealGrams.getOrElse(idx) { "" },
-                        onValueChange = { vm.updateGram(idx, it) },
-                        label = { Text("g") },
-                        modifier = Modifier.width(90.dp)
-                    )
-                }
-            }
-            if (vm.mealTotalText.isNotBlank()) {
-                Text(vm.mealTotalText, style = MaterialTheme.typography.bodyMedium)
-            }
-            if (vm.mealNames.isNotEmpty()) {
-                Button(onClick = { vm.logMeal(context) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Log this meal")
-                }
-            }
-            if (vm.logResultText.isNotBlank()) {
-                Text(vm.logResultText)
-            }
+        if (vm.editingSlot != null) {
+            MealEditor(vm, context)
         }
 
         Divider()
@@ -297,6 +328,179 @@ fun TodayScreen(vm: TodayViewModel = viewModel()) {
             ChatResultCard(vm)
         }
         Composer(vm)
+    }
+}
+
+@Composable
+private fun NutritionCard(vm: TodayViewModel, context: Context) {
+    val nutrition = vm.todayJson?.optJSONObject("nutrition")
+    val kcal = nutrition?.optJSONObject("kcal")
+    val protein = nutrition?.optJSONObject("protein_g")
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                KcalRing(
+                    actual = kcal?.optDouble("actual") ?: 0.0,
+                    goal = optionalDouble(kcal, "goal"),
+                )
+                ProteinBar(
+                    actual = protein?.optDouble("actual") ?: 0.0,
+                    goal = optionalDouble(protein, "goal"),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            SlotRow(vm, nutrition, context)
+            if (vm.logResultText.isNotBlank()) {
+                Text(vm.logResultText, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun KcalRing(actual: Double, goal: Double?, modifier: Modifier = Modifier) {
+    val fraction = if (goal != null && goal > 0) (actual / goal).toFloat().coerceIn(0f, 1f) else 0f
+    Box(modifier = modifier.size(72.dp), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(
+            progress = fraction,
+            modifier = Modifier.fillMaxSize(),
+            strokeWidth = 6.dp,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(Format.kcal(actual), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            if (goal != null) {
+                Text("/ ${Format.kcal(goal)}", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProteinBar(actual: Double, goal: Double?, modifier: Modifier = Modifier) {
+    val fraction = if (goal != null && goal > 0) (actual / goal).toFloat().coerceIn(0f, 1f) else 0f
+    Column(modifier = modifier) {
+        Text(
+            "Protein: ${Format.grams(actual)}" + (goal?.let { " / ${Format.grams(it)}" } ?: ""),
+            style = MaterialTheme.typography.labelMedium,
+        )
+        LinearProgressIndicator(
+            progress = fraction,
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun SlotRow(vm: TodayViewModel, nutrition: JSONObject?, context: Context) {
+    val serverLogged = remember(nutrition) {
+        val arr = nutrition?.optJSONArray("meal_slots_logged")
+        if (arr == null) emptySet() else (0 until arr.length()).map { arr.getString(it) }.toSet()
+    }
+    val loggedSlots = serverLogged + vm.locallyLoggedSlots
+    val usualBySlot = nutrition?.optJSONObject("usual")
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        MEAL_SLOTS.forEach { slot ->
+            val usual = usualBySlot?.optJSONObject(slot)
+            val timesLogged = usual?.optInt("times_logged", 0) ?: 0
+            SlotChip(
+                label = SLOT_LABELS[slot] ?: slot,
+                logged = slot in loggedSlots,
+                hasUsual = timesLogged > 0,
+                onLogUsual = { if (usual != null) vm.logUsual(context, slot, usual) },
+                onEdit = { vm.startEditingSlot(context, slot) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SlotChip(
+    label: String,
+    logged: Boolean,
+    hasUsual: Boolean,
+    onLogUsual: () -> Unit,
+    onEdit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (logged) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+        modifier = modifier.clickable(enabled = !logged) { if (hasUsual) onLogUsual() else onEdit() },
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                when {
+                    logged -> "✓"
+                    hasUsual -> "Usual"
+                    else -> "+"
+                },
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun MealEditor(vm: TodayViewModel, context: Context) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "${vm.mealType.replaceFirstChar { it.uppercase() }} suggestion",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Row {
+                    TextButton(onClick = { vm.refreshMeal(context) }, enabled = !vm.mealRefreshing) {
+                        Text(if (vm.mealRefreshing) "Refreshing..." else "🔄 Refresh")
+                    }
+                    TextButton(onClick = { vm.editingSlot = null }) { Text("✕") }
+                }
+            }
+
+            if (vm.mealLoading) {
+                Text("Loading...")
+            } else {
+                vm.mealNames.forEachIndexed { idx, name ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(name, modifier = Modifier.weight(1f))
+                        OutlinedTextField(
+                            value = vm.mealGrams.getOrElse(idx) { "" },
+                            onValueChange = { vm.updateGram(idx, it) },
+                            label = { Text("g") },
+                            modifier = Modifier.width(90.dp)
+                        )
+                    }
+                }
+                if (vm.mealTotalText.isNotBlank()) {
+                    Text(vm.mealTotalText, style = MaterialTheme.typography.bodyMedium)
+                }
+                if (vm.mealNames.isNotEmpty()) {
+                    Button(onClick = { vm.logMeal(context) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Log this meal")
+                    }
+                }
+            }
+        }
     }
 }
 
