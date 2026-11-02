@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("io.github.takahirom.roborazzi")
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -75,6 +76,13 @@ dependencies {
     // Coil: standard, lightweight image loader — needed to preview a picked photo (from a
     // content:// Uri) before upload, without hand-rolling Bitmap decode/EXIF/memory handling.
     implementation("io.coil-kt:coil-compose:2.6.0")
+
+    // Room + WorkManager: pre-approved in ROADMAP-NEXTGEN.md for the offline-first data
+    // layer (P2) — local cache the UI reads from, plus a durable outbox for queued writes.
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     // Screenshot testing (pre-approved in ROADMAP-NEXTGEN.md): JVM-based via Robolectric, no
     // emulator needed in CI.
