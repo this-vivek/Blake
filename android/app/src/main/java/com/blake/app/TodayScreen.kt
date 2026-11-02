@@ -22,10 +22,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.blake.app.data.BlakeDatabase
+import com.blake.app.data.CachedEventEntity
+import com.blake.app.data.OutboxRepository
 import com.blake.app.ui.theme.Format
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
 
@@ -104,23 +108,37 @@ class TodayViewModel : ViewModel() {
         mealGrams = mealGrams.toMutableList().also { it[index] = value }
     }
 
+    /** Queues the write to the outbox instead of waiting on the network — logging an already-
+     * known suggestion works instantly offline, and syncs exactly once when reconnected
+     * (WorkManager's network constraint + the backend's client_id idempotency). */
     fun logMeal(context: Context) {
         val items = mealNames.indices.mapNotNull { i ->
             val grams = mealGrams[i].toDoubleOrNull()
             if (grams != null && grams > 0) mealNames[i] to grams else null
         }
         if (items.isEmpty()) return
-        val api = Prefs.apiFor(context)
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { api.logMeal(mealType, items) }
-            logResultText = result.fold(
-                onSuccess = { json ->
-                    val total = JSONObject(json).optJSONObject("total")
-                    if (total != null) "Logged! Total: ${Format.kcal(total.optDouble("kcal", 0.0))}"
-                    else "Logged, but response was unexpected: $json"
-                },
-                onFailure = { "Error: ${it.message}" }
+            val itemsJson = JSONArray()
+            items.forEach { (name, grams) ->
+                itemsJson.put(JSONObject().put("name", name).put("grams", grams))
+            }
+            val bodyJson = JSONObject().put("meal", mealType).put("items", itemsJson).toString()
+            val outboxId = OutboxRepository.enqueue(context, "/log/meal", "POST", bodyJson, "meal")
+
+            // Optimistic row: shows what was submitted, not fabricated macros — real numbers
+            // land once SyncWorker reconciles this with the server's response.
+            val payload = JSONObject().put("meal", mealType).put("items", itemsJson)
+            BlakeDatabase.get(context).eventDao().upsert(
+                CachedEventEntity(
+                    id = -outboxId,
+                    module = "meals",
+                    kind = "meal",
+                    ts = System.currentTimeMillis() / 1000.0,
+                    payloadJson = payload.toString(),
+                    pending = true,
+                )
             )
+            logResultText = "Logged for $mealType — syncing..."
         }
     }
 

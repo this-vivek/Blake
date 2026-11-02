@@ -14,8 +14,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.blake.app.data.BlakeDatabase
 import com.blake.app.ui.theme.Format
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -26,7 +28,14 @@ import java.util.Locale
 
 private val MODULES = listOf("meals", "workouts", "expenses", "tasks")
 
-data class TimelineEntry(val id: Int, val dayLabel: String, val text: String, val voided: Boolean)
+data class TimelineEntry(
+    val id: Long,
+    val ts: Double,
+    val dayLabel: String,
+    val text: String,
+    val voided: Boolean,
+    val pending: Boolean = false,
+)
 
 private sealed class TimelineRow {
     data class Header(val label: String) : TimelineRow()
@@ -36,8 +45,19 @@ private sealed class TimelineRow {
 class TimelineViewModel : ViewModel() {
     var summaryText by mutableStateOf("Loading summary...")
     var selectedModule by mutableStateOf(MODULES.first())
-    var entries by mutableStateOf<List<TimelineEntry>>(emptyList())
+    var networkEntries by mutableStateOf<List<TimelineEntry>>(emptyList())
+    var pendingEntries by mutableStateOf<List<TimelineEntry>>(emptyList())
     var isLoading by mutableStateOf(false)
+    private var pendingCollectJob: Job? = null
+
+    /** Pending (not-yet-synced) rows first, then the server's own history, so an offline
+     * log shows up instantly without waiting for a network round-trip. */
+    val entries: List<TimelineEntry>
+        get() {
+            val pendingIds = pendingEntries.map { it.id }.toSet()
+            return (pendingEntries + networkEntries.filterNot { it.id in pendingIds })
+                .sortedByDescending { it.ts }
+        }
 
     fun loadSummary(context: Context) {
         val api = Prefs.apiFor(context)
@@ -53,23 +73,39 @@ class TimelineViewModel : ViewModel() {
     fun loadHistory(context: Context, module: String) {
         selectedModule = module
         isLoading = true
+
+        pendingCollectJob?.cancel()
+        pendingCollectJob = viewModelScope.launch {
+            BlakeDatabase.get(context).eventDao().observeByModule(module).collect { cached ->
+                pendingEntries = cached.filter { it.pending }.map { e ->
+                    val payload = JSONObject(e.payloadJson)
+                    TimelineEntry(
+                        id = e.id, ts = e.ts, dayLabel = dayLabel(e.ts),
+                        text = formatEntryText(e.kind, payload), voided = false, pending = true,
+                    )
+                }
+            }
+        }
+
         val api = Prefs.apiFor(context)
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) { api.history(module, limit = 100) }
             isLoading = false
-            entries = result.fold(
+            networkEntries = result.fold(
                 onSuccess = { parseTimeline(it) },
-                onFailure = { listOf(TimelineEntry(-1, "", "Error: ${it.message}", false)) }
+                onFailure = { listOf(TimelineEntry(-1, 0.0, "", "Error: ${it.message}", false)) }
             )
         }
     }
 
-    fun undo(context: Context, eventId: Int) {
+    fun undo(context: Context, eventId: Long) {
         val api = Prefs.apiFor(context)
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { api.voidEvent(eventId) }
+            val result = withContext(Dispatchers.IO) { api.voidEvent(eventId.toInt()) }
             result.onSuccess {
-                entries = entries.map { if (it.id == eventId) it.copy(voided = true) else it }
+                networkEntries = networkEntries.map {
+                    if (it.id == eventId) it.copy(voided = true) else it
+                }
             }
         }
     }
@@ -107,10 +143,19 @@ private fun dayLabel(epochSeconds: Double): String {
 private fun formatEntryText(kind: String, payload: JSONObject): String = when (kind) {
     "meal" -> {
         val total = payload.optJSONObject("total")
-        "${payload.optString("meal")}: ${Format.kcal(total?.optDouble("kcal", 0.0) ?: 0.0)}"
+        if (total != null) {
+            "${payload.optString("meal")}: ${Format.kcal(total.optDouble("kcal", 0.0))}"
+        } else {
+            // optimistic/pending row — real macros aren't known client-side, don't fake them
+            val itemCount = payload.optJSONArray("items")?.length() ?: 0
+            "${payload.optString("meal")}: $itemCount item${if (itemCount == 1) "" else "s"}"
+        }
     }
-    "set" -> "${payload.optString("exercise")} ${Format.weightKg(payload.optDouble("weight_kg"))}" +
-        " x${payload.optInt("reps")} (e1RM ${Format.weightKg(payload.optDouble("e1rm"))})"
+    "set" -> {
+        val base = "${payload.optString("exercise")} ${Format.weightKg(payload.optDouble("weight_kg"))}" +
+            " x${payload.optInt("reps")}"
+        if (payload.has("e1rm")) "$base (e1RM ${Format.weightKg(payload.optDouble("e1rm"))})" else base
+    }
     "expense" -> "${payload.optString("category")}: ${Format.currency(payload.optDouble("amount"))}" +
         (payload.optString("note").takeIf { it.isNotBlank() }?.let { " — $it" } ?: "")
     "task" -> "To-do: ${payload.optString("title")}"
@@ -124,21 +169,21 @@ private fun formatEntryText(kind: String, payload: JSONObject): String = when (k
 // seeing a correction happened is part of the audit trail).
 private fun parseTimeline(json: String): List<TimelineEntry> {
     val events: JSONArray = JSONObject(json).optJSONArray("events") ?: JSONArray()
-    val voidedIds = mutableSetOf<Int>()
-    data class Raw(val id: Int, val ts: Double, val kind: String, val payload: JSONObject)
+    val voidedIds = mutableSetOf<Long>()
+    data class Raw(val id: Long, val ts: Double, val kind: String, val payload: JSONObject)
     val raw = mutableListOf<Raw>()
     for (i in 0 until events.length()) {
         val e = events.getJSONObject(i)
         val kind = e.optString("kind")
         val payload = e.optJSONObject("payload") ?: JSONObject()
         if (kind == "void") {
-            voidedIds.add(payload.optInt("target_id"))
+            voidedIds.add(payload.optLong("target_id"))
         } else {
-            raw.add(Raw(e.optInt("id"), e.optDouble("ts"), kind, payload))
+            raw.add(Raw(e.optLong("id"), e.optDouble("ts"), kind, payload))
         }
     }
     return raw.map { r ->
-        TimelineEntry(r.id, dayLabel(r.ts), formatEntryText(r.kind, r.payload), r.id in voidedIds)
+        TimelineEntry(r.id, r.ts, dayLabel(r.ts), formatEntryText(r.kind, r.payload), r.id in voidedIds)
     }
 }
 
@@ -222,7 +267,11 @@ private fun TimelineEntryCard(entry: TimelineEntry, vm: TimelineViewModel) {
                     MaterialTheme.typography.bodyMedium
                 }
             )
-            if (entry.voided) {
+            if (entry.pending) {
+                // Not yet confirmed by the server — no real event id to void against,
+                // so Undo isn't offered until it syncs.
+                Text("Syncing...", style = MaterialTheme.typography.labelSmall)
+            } else if (entry.voided) {
                 Text("Voided", style = MaterialTheme.typography.labelSmall)
             } else if (expanded) {
                 TextButton(onClick = { vm.undo(context, entry.id) }) { Text("Undo") }

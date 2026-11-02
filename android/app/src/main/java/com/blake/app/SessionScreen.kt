@@ -16,10 +16,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.blake.app.data.BlakeDatabase
+import com.blake.app.data.CachedEventEntity
+import com.blake.app.data.OutboxRepository
 import com.blake.app.ui.pop.PopButton
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** Hands off the confirmed plan from WorkoutScreen to SessionScreen without needing to
@@ -34,7 +35,6 @@ class SessionViewModel : ViewModel() {
     var setsLoggedForCurrent by mutableStateOf(0)
     var weightInput by mutableStateOf("")
     var sessionKcal by mutableStateOf(0.0)
-    var logging by mutableStateOf(false)
     var statusText by mutableStateOf("")
     var finished by mutableStateOf(false)
     private var initialized = false
@@ -49,6 +49,11 @@ class SessionViewModel : ViewModel() {
 
     private fun targetReps(reps: String): Int = reps.filter { it.isDigit() }.toIntOrNull() ?: 1
 
+    /** Queues the write and updates local state immediately — this never waits on the
+     * network, so logging a set feels instant even offline. The kcal shown is a client-side
+     * *estimate* (see KcalEstimate.kt) purely for that instant feedback; the server's own
+     * computed value (summed in /today's kcal_burned_today) is the real number, reconciled
+     * once SyncWorker actually delivers this set. */
     fun logSet(context: Context) {
         val ex = currentExercise ?: return
         val weight = weightInput.toDoubleOrNull()
@@ -56,21 +61,35 @@ class SessionViewModel : ViewModel() {
             statusText = "Enter a valid weight (0 is fine for bodyweight moves)"
             return
         }
-        logging = true
-        statusText = ""
-        val api = Prefs.apiFor(context)
+        val reps = targetReps(ex.reps)
+        val estimatedKcal = estimateKcalForSet(ex.group)
+
+        setsLoggedForCurrent++
+        sessionKcal += estimatedKcal
+        statusText = "Set $setsLoggedForCurrent logged (syncing...)"
+
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { api.logSet(ex.name, weight, targetReps(ex.reps)) }
-            logging = false
-            result.fold(
-                onSuccess = { json ->
-                    val obj = JSONObject(json)
-                    setsLoggedForCurrent++
-                    sessionKcal += obj.optDouble("kcal_burned", 0.0)
-                    val prText = if (obj.optBoolean("is_pr")) " 🎉 New PR!" else ""
-                    statusText = "Set $setsLoggedForCurrent logged.$prText"
-                },
-                onFailure = { statusText = "Error: ${it.message}" }
+            val bodyJson = JSONObject()
+                .put("exercise", ex.name)
+                .put("weight_kg", weight)
+                .put("reps", reps)
+                .toString()
+            val outboxId = OutboxRepository.enqueue(context, "/log/set", "POST", bodyJson, "set")
+
+            val payload = JSONObject()
+                .put("exercise", ex.name.lowercase())
+                .put("weight_kg", weight)
+                .put("reps", reps)
+                .put("kcal_burned", estimatedKcal)
+            BlakeDatabase.get(context).eventDao().upsert(
+                CachedEventEntity(
+                    id = -outboxId,
+                    module = "workouts",
+                    kind = "set",
+                    ts = System.currentTimeMillis() / 1000.0,
+                    payloadJson = payload.toString(),
+                    pending = true,
+                )
             )
         }
     }
@@ -151,9 +170,9 @@ fun SessionScreen(onFinish: () -> Unit, vm: SessionViewModel = viewModel()) {
                         label = { Text("Weight (kg)") },
                         modifier = Modifier.weight(1f),
                     )
-                    PopButton(onClick = { vm.logSet(context) }, enabled = !vm.logging) {
+                    PopButton(onClick = { vm.logSet(context) }) {
                         Text(
-                            if (vm.logging) "..." else "Log Set (${vm.setsLoggedForCurrent}/${ex.sets})",
+                            "Log Set (${vm.setsLoggedForCurrent}/${ex.sets})",
                             fontWeight = FontWeight.Bold,
                         )
                     }

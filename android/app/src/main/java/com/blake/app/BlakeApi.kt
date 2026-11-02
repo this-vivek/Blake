@@ -5,7 +5,6 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.net.URLEncoder
@@ -62,50 +61,6 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
     fun suggestMealRefresh(meal: String): Result<String> =
         get("$baseUrl/suggest/meal/refresh?meal=${enc(meal)}")
 
-    fun logMeal(meal: String, items: List<Pair<String, Double>>): Result<String> {
-        val itemsJson = JSONArray()
-        items.forEach { (name, grams) ->
-            itemsJson.put(JSONObject().put("name", name).put("grams", grams))
-        }
-        val body = JSONObject().put("meal", meal).put("items", itemsJson).toString()
-        return try {
-            val request = Request.Builder()
-                .url("$baseUrl/log/meal")
-                .header("X-API-Key", apiKey)
-                .post(body.toRequestBody("application/json".toMediaType()))
-                .build()
-            client.newCall(request).execute().use { resp ->
-                val respBody = resp.body?.string().orEmpty()
-                if (resp.isSuccessful) Result.success(respBody)
-                else Result.failure(IOException("HTTP ${resp.code}: $respBody"))
-            }
-        } catch (e: IOException) {
-            Result.failure(e)
-        }
-    }
-
-    fun logSet(exercise: String, weightKg: Double, reps: Int): Result<String> {
-        val body = JSONObject()
-            .put("exercise", exercise)
-            .put("weight_kg", weightKg)
-            .put("reps", reps)
-            .toString()
-        return try {
-            val request = Request.Builder()
-                .url("$baseUrl/log/set")
-                .header("X-API-Key", apiKey)
-                .post(body.toRequestBody("application/json".toMediaType()))
-                .build()
-            client.newCall(request).execute().use { resp ->
-                val respBody = resp.body?.string().orEmpty()
-                if (resp.isSuccessful) Result.success(respBody)
-                else Result.failure(IOException("HTTP ${resp.code}: $respBody"))
-            }
-        } catch (e: IOException) {
-            Result.failure(e)
-        }
-    }
-
     fun getGoals(): Result<String> = get("$baseUrl/goals")
 
     fun putGoals(
@@ -149,6 +104,27 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
                 val body = resp.body?.string().orEmpty()
                 if (resp.isSuccessful) Result.success(body)
                 else Result.failure(IOException("HTTP ${resp.code}: $body"))
+            }
+        } catch (e: IOException) {
+            Result.failure(e)
+        }
+    }
+
+    /** Generic POST/PUT by path+body — used by the outbox sync worker, which stores a queued
+     * write as (path, method, bodyJson) rather than typed per-endpoint. */
+    fun rawRequest(method: String, path: String, bodyJson: String): Result<String> {
+        return try {
+            val requestBody = bodyJson.toRequestBody("application/json".toMediaType())
+            val requestBuilder = Request.Builder().url("$baseUrl$path").header("X-API-Key", apiKey)
+            when (method.uppercase()) {
+                "POST" -> requestBuilder.post(requestBody)
+                "PUT" -> requestBuilder.put(requestBody)
+                else -> return Result.failure(IllegalArgumentException("unsupported method $method"))
+            }
+            client.newCall(requestBuilder.build()).execute().use { resp ->
+                val respBody = resp.body?.string().orEmpty()
+                if (resp.isSuccessful) Result.success(respBody)
+                else Result.failure(IOException("HTTP ${resp.code}: $respBody"))
             }
         } catch (e: IOException) {
             Result.failure(e)
