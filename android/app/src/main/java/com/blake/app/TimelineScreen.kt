@@ -2,6 +2,10 @@ package com.blake.app
 
 import android.content.Context
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,7 +20,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blake.app.data.BlakeDatabase
 import com.blake.app.data.TodayCacheEntity
-import com.blake.app.ui.theme.Format
+import com.blake.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -264,37 +268,47 @@ fun TimelineScreen(vm: TimelineViewModel = viewModel()) {
         vm.loadHistory(context, vm.selectedModule)
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Today", style = MaterialTheme.typography.titleMedium)
-        Text(vm.summaryText, modifier = Modifier.padding(top = 8.dp))
-        UpdatedAgoText(vm.summaryUpdatedAt)
-
-        Divider(modifier = Modifier.padding(top = 8.dp))
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = Spacing.lg)
+            .padding(top = Spacing.xl),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("Timeline", style = MaterialTheme.typography.titleLarge)
+            Text(
+                vm.summaryText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            UpdatedAgoText(vm.summaryUpdatedAt)
+        }
 
         Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             MODULES.forEach { module ->
-                FilterChip(
+                BlakeChip(
+                    text = module,
                     selected = vm.selectedModule == module,
                     onClick = { vm.loadHistory(context, module) },
-                    label = { Text(module) }
                 )
             }
         }
 
         if (vm.isLoading) {
-            Text("Loading...")
+            Text("Loading...", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             val rows = remember(vm.entries) { buildRows(vm.entries) }
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 items(rows) { row ->
                     when (row) {
-                        is TimelineRow.Header -> Text(
+                        is TimelineRow.Header -> SectionLabel(
                             row.label,
-                            style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                            modifier = Modifier.padding(top = Spacing.md, bottom = Spacing.xs),
                         )
                         is TimelineRow.Item -> TimelineEntryCard(row.entry, vm)
                     }
@@ -309,28 +323,35 @@ private fun TimelineEntryCard(entry: TimelineEntry, vm: TimelineViewModel) {
     val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
 
-    Card(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { expanded = !expanded }
+            .clip(RoundedCornerShape(Radius.md))
+            .clickable { expanded = !expanded },
+        shape = RoundedCornerShape(Radius.md),
+        color = MaterialTheme.colorScheme.surface,
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.md)) {
             Text(
                 entry.text,
                 style = if (entry.voided) {
-                    MaterialTheme.typography.bodyMedium.copy(textDecoration = TextDecoration.LineThrough)
+                    MaterialTheme.typography.bodyLarge.copy(textDecoration = TextDecoration.LineThrough)
                 } else {
-                    MaterialTheme.typography.bodyMedium
-                }
+                    MaterialTheme.typography.bodyLarge
+                },
+                color = if (entry.voided) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.onSurface,
             )
             if (entry.pending) {
-                // Not yet confirmed by the server — no real event id to void against,
+                // Not yet confirmed by the server: no real event id to void against,
                 // so Undo isn't offered until it syncs.
-                Text("Syncing...", style = MaterialTheme.typography.labelSmall)
+                Text("Syncing...", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else if (entry.voided) {
-                Text("Voided", style = MaterialTheme.typography.labelSmall)
+                Text("Undone", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else if (expanded) {
-                TextButton(onClick = { vm.undo(context, entry.id) }) { Text("Undo") }
+                QuietButton("Undo", onClick = { vm.undo(context, entry.id) })
             }
         }
     }
