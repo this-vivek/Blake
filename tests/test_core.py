@@ -38,6 +38,15 @@ def test_meal_macros_from_lookup_not_model(reg, db):
     assert reg.call("meals__daily_summary", {}, db)["today"]["kcal"] == 143.0
 
 
+def test_meal_matching_prefers_dish_name_over_ingredient_word(reg, db):
+    # Regression case called out in ROADMAP-NEXTGEN.md P5: "egg curry" (2 words) should win
+    # over "tomato" or "onion" (single ingredient words also present in the FOODS table).
+    out = reg.call(
+        "meals__log_meal", {"items": [{"name": "egg curry with onion and tomato", "grams": 200}]}, db
+    )
+    assert out["logged"][0]["name"] == "egg curry"
+
+
 def test_log_meal_converts_household_unit_to_grams(reg, db):
     out = reg.call("meals__log_meal", {"items": [{"name": "roti", "qty": 2, "unit": "piece"}]}, db)
     assert out["logged"][0]["grams"] == 80.0  # 2 x 40g per roti

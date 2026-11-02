@@ -38,3 +38,5 @@
 {"text": "had 2 roti and a katori of dal for lunch", "expect": ["meals__log_meal"]}
 {"text": "drank a glass of milk", "expect": ["meals__log_meal"]}
 {"text": "one bowl of curd after dinner", "expect": ["meals__log_meal"]}
+{"text": "egg curry with onion and tomato for dinner", "expect": ["meals__log_meal"]}
+{"text": "had paneer butter masala and naan for lunch", "expect": ["meals__log_meal"]}

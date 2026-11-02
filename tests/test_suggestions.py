@@ -2,7 +2,7 @@ import pytest
 
 from app.core.db import Db
 from app.core.registry import Registry
-from modules.meals import usual_combo
+from modules.meals import food_source, usual_combo
 from modules.workouts import suggested_next
 
 
@@ -60,6 +60,14 @@ def test_suggest_meal_avoids_recently_eaten(reg, db):
 
 def test_suggest_meal_rejects_unknown_meal_type(reg, db):
     assert "error" in reg.call("meals__suggest_meal", {"meal": "brunch"}, db)
+
+
+def test_food_source_known_dish_reports_its_citation():
+    assert food_source("egg curry") == "IFCT 2017"
+
+
+def test_food_source_unsourced_food_reports_estimated():
+    assert food_source("egg") == "estimated"
 
 
 def test_usual_combo_empty_when_never_logged(db):

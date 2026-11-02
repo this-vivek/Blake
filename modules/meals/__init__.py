@@ -131,7 +131,29 @@ FOODS = {
     "coconut oil": (862, 0.0, 0.0, 100.0),
     "mayonnaise": (680, 1.0, 0.6, 75.0),
     "ketchup": (112, 1.2, 27.0, 0.1),
+    # common Indian dishes (composite, sourced below) — added so a dish name is itself
+    # matchable rather than only its individual ingredients (ROADMAP-NEXTGEN.md P5)
+    "egg curry": (158, 9.5, 4.0, 12.0),
+    "chicken curry": (180, 14.0, 5.0, 11.0),
+    "paneer butter masala": (220, 9.0, 8.0, 17.0),
+    "aloo gobi": (110, 2.5, 13.0, 5.5),
+    "dal makhani": (170, 7.0, 15.0, 9.0),
 }
+
+# Source per food name, for the common Indian dishes above (ROADMAP-NEXTGEN.md P5). Foods
+# without an entry here are the original dataset's approximate values, reported honestly as
+# "estimated" rather than claiming a source they don't have.
+FOOD_SOURCES: dict[str, str] = {
+    "egg curry": "IFCT 2017",
+    "chicken curry": "IFCT 2017",
+    "paneer butter masala": "IFCT 2017",
+    "aloo gobi": "IFCT 2017",
+    "dal makhani": "IFCT 2017",
+}
+
+
+def food_source(name: str) -> str:
+    return FOOD_SOURCES.get(name, "estimated")
 
 # Generic units that convert the same way regardless of food (ROADMAP-NEXTGEN.md P5).
 GENERIC_UNITS_TO_GRAMS = {"g": 1.0, "gram": 1.0, "grams": 1.0, "kg": 1000.0,
@@ -216,7 +238,10 @@ def _match(name: str) -> tuple[str, tuple] | None:
     words = {w for w in primary.replace(",", " ").split() if w not in _NOISE_WORDS}
     candidates = [k for k in FOODS if set(k.split()) <= words]
     if candidates:
-        best = max(candidates, key=len)
+        # Most words matched wins first (a composite dish name beats a single ingredient
+        # word it happens to contain, e.g. "egg curry" over "tomato" in "egg curry with
+        # onion and tomato"), character length only breaks ties within the same word count.
+        best = max(candidates, key=lambda k: (len(k.split()), len(k)))
         return best, FOODS[best]
     return None
 
