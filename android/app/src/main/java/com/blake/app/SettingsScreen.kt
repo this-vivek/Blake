@@ -3,6 +3,7 @@ package com.blake.app
 import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,6 +16,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blake.app.data.BlakeDatabase
 import com.blake.app.data.GoalsCacheEntity
+import com.blake.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -99,7 +101,7 @@ class SettingsViewModel : ViewModel() {
 }
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onNavigateToUnmatched: () -> Unit = {}, vm: SettingsViewModel = viewModel()) {
+fun SettingsScreen(onBack: () -> Unit = {}, onNavigateToUnmatched: () -> Unit = {}, vm: SettingsViewModel = viewModel()) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences(Prefs.NAME, Context.MODE_PRIVATE)
     var baseUrl by remember {
@@ -113,76 +115,81 @@ fun SettingsScreen(onBack: () -> Unit, onNavigateToUnmatched: () -> Unit = {}, v
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = Spacing.lg)
+            .padding(top = Spacing.xl, bottom = Spacing.xl),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("← Back") }
-        }
+        Text("Settings", style = MaterialTheme.typography.titleLarge)
 
-        Text("Connection", style = MaterialTheme.typography.titleMedium)
-        OutlinedTextField(
-            value = baseUrl,
-            onValueChange = { baseUrl = it },
-            label = { Text("Server URL") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            value = apiKey,
-            onValueChange = { apiKey = it },
-            label = { Text("API Key") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Button(
-            onClick = {
+        BlakeCard {
+            SectionLabel("Connection")
+            OutlinedTextField(
+                value = baseUrl,
+                onValueChange = { baseUrl = it },
+                label = { Text("Server URL") },
+                shape = RoundedCornerShape(Radius.md),
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                label = { Text("API Key") },
+                shape = RoundedCornerShape(Radius.md),
+                modifier = Modifier.fillMaxWidth()
+            )
+            SecondaryButton("Save connection", onClick = {
                 prefs.edit()
                     .putString(Prefs.KEY_BASE_URL, baseUrl.trimEnd('/'))
                     .putString(Prefs.KEY_API_KEY, apiKey)
                     .apply()
                 connectionStatus = "Saved"
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("Save connection") }
-        if (connectionStatus.isNotBlank()) Text(connectionStatus)
-
-        Divider()
-
-        Text("Goals", style = MaterialTheme.typography.titleMedium)
-        if (vm.goalsLoading) {
-            Text("Loading...")
-        } else {
-            OutlinedTextField(
-                value = vm.kcalGoal, onValueChange = { vm.kcalGoal = it },
-                label = { Text("Daily kcal target") }, modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = vm.proteinGoal, onValueChange = { vm.proteinGoal = it },
-                label = { Text("Daily protein target (g)") }, modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = vm.spendGoal, onValueChange = { vm.spendGoal = it },
-                label = { Text("Daily spend budget (₹)") }, modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = vm.workoutDaysGoal, onValueChange = { vm.workoutDaysGoal = it },
-                label = { Text("Workout days per week") }, modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = vm.bodyweightGoal, onValueChange = { vm.bodyweightGoal = it },
-                label = { Text("Bodyweight (kg) — used to estimate kcal burned") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Button(onClick = { vm.saveGoals(context) }, modifier = Modifier.fillMaxWidth()) {
-                Text("Save goals")
+            })
+            if (connectionStatus.isNotBlank()) {
+                Text(connectionStatus, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.blake.success)
             }
-            if (vm.goalsStatus.isNotBlank()) Text(vm.goalsStatus)
         }
 
-        Divider()
-
-        TextButton(onClick = onNavigateToUnmatched, modifier = Modifier.fillMaxWidth()) {
-            Text("Unmatched items")
+        BlakeCard {
+            SectionLabel("Goals")
+            if (vm.goalsLoading) {
+                Text("Loading...", style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                OutlinedTextField(
+                    value = vm.kcalGoal, onValueChange = { vm.kcalGoal = it },
+                    label = { Text("Daily kcal target") },
+                    shape = RoundedCornerShape(Radius.md), modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = vm.proteinGoal, onValueChange = { vm.proteinGoal = it },
+                    label = { Text("Daily protein target (g)") },
+                    shape = RoundedCornerShape(Radius.md), modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = vm.spendGoal, onValueChange = { vm.spendGoal = it },
+                    label = { Text("Daily spend budget (₹)") },
+                    shape = RoundedCornerShape(Radius.md), modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = vm.workoutDaysGoal, onValueChange = { vm.workoutDaysGoal = it },
+                    label = { Text("Workout days per week") },
+                    shape = RoundedCornerShape(Radius.md), modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = vm.bodyweightGoal, onValueChange = { vm.bodyweightGoal = it },
+                    label = { Text("Bodyweight (kg), used to estimate kcal burned") },
+                    shape = RoundedCornerShape(Radius.md), modifier = Modifier.fillMaxWidth()
+                )
+                PrimaryButton("Save goals", onClick = { vm.saveGoals(context) })
+                if (vm.goalsStatus.isNotBlank()) {
+                    Text(vm.goalsStatus, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
+
+        QuietButton("Unmatched items", onClick = onNavigateToUnmatched)
     }
 }

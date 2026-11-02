@@ -103,7 +103,7 @@ class TodayViewModel : ViewModel() {
     fun startSession(context: Context, onReady: () -> Unit) {
         val group = programMuscleGroup
         if (group.isNullOrBlank()) {
-            startError = "No training day set for today. Open Settings to set your program."
+            startError = "No training day for today. Tell Blake your program, e.g. \"set my program: chest, back, legs, rest\"."
             return
         }
         startingSession = true
