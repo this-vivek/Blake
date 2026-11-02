@@ -33,6 +33,9 @@ private const val DEFAULT_REST_SECONDS = 90
  * serialize it through Navigation Compose's string-based route args. */
 object WorkoutSessionStore {
     var pendingExercises: List<ExerciseItem> = emptyList()
+    // Set by WorkoutViewModel.startProgramDay/confirmGroups — finishing a program-flagged
+    // session advances the program's day pointer (P4.4), finishing an ad-hoc one doesn't.
+    var isProgramSession: Boolean = false
 }
 
 private data class LoggedSet(val exercise: String, val group: String, val weightKg: Double, val reps: Int)
@@ -158,7 +161,7 @@ class SessionViewModel : ViewModel() {
         }
     }
 
-    fun nextExercise() {
+    fun nextExercise(context: Context) {
         restJob?.cancel()
         restSecondsRemaining = 0
         if (currentIndex < exercises.lastIndex) {
@@ -170,6 +173,10 @@ class SessionViewModel : ViewModel() {
         } else {
             finished = true
             sessionEndMs = System.currentTimeMillis()
+            if (WorkoutSessionStore.isProgramSession) {
+                val api = Prefs.apiFor(context)
+                viewModelScope.launch { withContext(Dispatchers.IO) { api.completeProgramDay() } }
+            }
         }
     }
 
@@ -284,7 +291,7 @@ fun SessionScreen(onFinish: () -> Unit, vm: SessionViewModel = viewModel()) {
                     Text(vm.statusText, style = MaterialTheme.typography.bodySmall)
                 }
 
-                PopButton(onClick = { vm.nextExercise() }, modifier = Modifier.fillMaxWidth()) {
+                PopButton(onClick = { vm.nextExercise(context) }, modifier = Modifier.fillMaxWidth()) {
                     Text(
                         if (vm.currentIndex < vm.exercises.lastIndex) "Next Exercise →" else "Finish Session",
                         fontWeight = FontWeight.Bold,

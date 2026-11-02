@@ -51,6 +51,57 @@ class WorkoutViewModel : ViewModel() {
     var exercises by mutableStateOf<List<ExerciseItem>>(emptyList())
     var errorText by mutableStateOf("")
 
+    // Opt-in "follow my plan" mode (ROADMAP-NEXTGEN.md P4) — sits alongside the gym/home
+    // picker above rather than replacing it, since the picker already works well.
+    var programDayIndex by mutableStateOf<Int?>(null)
+    var programMuscleGroup by mutableStateOf<String?>(null)
+    var programIsRest by mutableStateOf(false)
+    var programLoaded by mutableStateOf(false)
+
+    fun loadProgramToday(context: Context) {
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.programToday() }
+            result.onSuccess { json ->
+                val obj = JSONObject(json)
+                programDayIndex = obj.optInt("index")
+                val day = obj.optJSONObject("day")
+                programIsRest = day?.optString("type") == "rest"
+                programMuscleGroup = if (!programIsRest) day?.optString("muscle_group") else null
+                programLoaded = true
+            }
+        }
+    }
+
+    fun markRestDayComplete(context: Context) {
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { api.completeProgramDay() }
+            loadProgramToday(context)
+        }
+    }
+
+    /** Skips the location-choice sheet since the muscle group is already known from the
+     * program — the session is flagged so finishing it advances the program's pointer
+     * (WorkoutSessionStore.isProgramSession), same as completing any other day. */
+    fun startProgramDay(context: Context, location: String) {
+        val group = programMuscleGroup ?: return
+        loading = true
+        errorText = ""
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.suggestWorkout(location, group) }
+            loading = false
+            result.fold(
+                onSuccess = { json ->
+                    exercises = parseExercises(json)
+                    WorkoutSessionStore.isProgramSession = true
+                },
+                onFailure = { errorText = "Error: ${it.message}" }
+            )
+        }
+    }
+
     fun selectLocation(loc: String) {
         location = loc
         selectedGroups = emptySet()
@@ -76,7 +127,10 @@ class WorkoutViewModel : ViewModel() {
             }
             loading = false
             result.fold(
-                onSuccess = { json -> exercises = parseExercises(json) },
+                onSuccess = { json ->
+                    exercises = parseExercises(json)
+                    WorkoutSessionStore.isProgramSession = false
+                },
                 onFailure = { errorText = "Error: ${it.message}" }
             )
         }
@@ -102,11 +156,16 @@ private fun parseExercises(json: String): List<ExerciseItem> {
 @Composable
 fun WorkoutScreen(onStartSession: (List<ExerciseItem>) -> Unit, vm: WorkoutViewModel = viewModel()) {
     val context = LocalContext.current
+    LaunchedEffect(Unit) { if (!vm.programLoaded) vm.loadProgramToday(context) }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        if (vm.programLoaded) {
+            ProgramDayCard(vm, context)
+        }
+
         Text("Where are you training?", style = MaterialTheme.typography.titleLarge)
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -158,6 +217,39 @@ fun WorkoutScreen(onStartSession: (List<ExerciseItem>) -> Unit, vm: WorkoutViewM
 
     if (vm.showSheet) {
         MuscleGroupSheet(vm, onDismiss = { vm.showSheet = false }, onConfirm = { vm.confirmGroups(context) })
+    }
+}
+
+@Composable
+private fun ProgramDayCard(vm: WorkoutViewModel, context: Context) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Today's plan — Day ${(vm.programDayIndex ?: 0) + 1}",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            if (vm.programIsRest) {
+                Text("Rest day", style = MaterialTheme.typography.bodyLarge)
+                PopButton(onClick = { vm.markRestDayComplete(context) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Mark complete", fontWeight = FontWeight.Bold)
+                }
+            } else {
+                val group = vm.programMuscleGroup
+                val label = MUSCLE_GROUP_OPTIONS.find { it.id == group }?.label ?: group ?: "?"
+                Text(
+                    "${MUSCLE_GROUP_EMOJI[group] ?: "🏋️"} $label",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    PopButton(onClick = { vm.startProgramDay(context, "gym") }, modifier = Modifier.weight(1f)) {
+                        Text("Gym")
+                    }
+                    PopButton(onClick = { vm.startProgramDay(context, "home") }, modifier = Modifier.weight(1f)) {
+                        Text("Home")
+                    }
+                }
+            }
+        }
     }
 }
 

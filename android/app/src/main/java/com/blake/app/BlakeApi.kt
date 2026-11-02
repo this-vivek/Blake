@@ -69,6 +69,25 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
     fun suggestNextSet(exercise: String): Result<String> =
         get("$baseUrl/suggest/next_set?exercise=${enc(exercise)}")
 
+    fun programToday(): Result<String> = get("$baseUrl/program/today")
+
+    fun completeProgramDay(): Result<String> {
+        return try {
+            val request = Request.Builder()
+                .url("$baseUrl/program/complete")
+                .header("X-API-Key", apiKey)
+                .post("".toRequestBody(null))
+                .build()
+            client.newCall(request).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (resp.isSuccessful) Result.success(body)
+                else Result.failure(IOException("HTTP ${resp.code}: $body"))
+            }
+        } catch (e: IOException) {
+            Result.failure(e)
+        }
+    }
+
     fun suggestMeal(meal: String): Result<String> =
         get("$baseUrl/suggest/meal?meal=${enc(meal)}")
 
