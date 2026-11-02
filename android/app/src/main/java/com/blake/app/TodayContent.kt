@@ -271,7 +271,10 @@ private fun KcalRing(
     val fraction = if (goal != null && goal > 0) (actual / goal).toFloat().coerceIn(0f, 1f) else 0f
     val track = MaterialTheme.blake.divider
     val progressColor = if (over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    Box(modifier.requiredSize(size), contentAlignment = Alignment.Center) {
+    // The collapsed header is only 76dp tall, shorter than the ring's full size. requiredSize
+    // would centre the oversized ring on the header (pushing it up under the status bar);
+    // an unbounded wrap measures it at full size and keeps it pinned to the top-left.
+    Box(modifier.wrapContentSize(Alignment.TopStart, unbounded = true).size(size), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             // On screen the stroke is 8dp open and 4dp collapsed; the layer scale shrinks it too.
             val p = progress()
