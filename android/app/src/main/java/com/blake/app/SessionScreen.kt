@@ -20,8 +20,14 @@ import com.blake.app.data.BlakeDatabase
 import com.blake.app.data.CachedEventEntity
 import com.blake.app.data.OutboxRepository
 import com.blake.app.ui.pop.PopButton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
+
+private const val DEFAULT_REST_SECONDS = 90
 
 /** Hands off the confirmed plan from WorkoutScreen to SessionScreen without needing to
  * serialize it through Navigation Compose's string-based route args. */
@@ -34,9 +40,12 @@ class SessionViewModel : ViewModel() {
     var currentIndex by mutableStateOf(0)
     var setsLoggedForCurrent by mutableStateOf(0)
     var weightInput by mutableStateOf("")
+    var suggestionText by mutableStateOf("")
     var sessionKcal by mutableStateOf(0.0)
     var statusText by mutableStateOf("")
     var finished by mutableStateOf(false)
+    var restSecondsRemaining by mutableStateOf(0)
+    private var restJob: Job? = null
     private var initialized = false
 
     fun init(exercises: List<ExerciseItem>) {
@@ -46,6 +55,42 @@ class SessionViewModel : ViewModel() {
     }
 
     val currentExercise: ExerciseItem? get() = exercises.getOrNull(currentIndex)
+
+    /** Prefills the weight input from the server's deterministic progressive-overload
+     * suggestion (app/today.py's workouts.suggested_next, P4.1) — the model never guesses
+     * this, it's the same weight-last-session + increment logic, just surfaced here. */
+    fun loadSuggestion(context: Context) {
+        val ex = currentExercise ?: return
+        suggestionText = ""
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.suggestNextSet(ex.name) }
+            result.onSuccess { json ->
+                val obj = JSONObject(json)
+                if (!obj.has("suggested_weight_kg") || obj.isNull("suggested_weight_kg")) return@onSuccess
+                val suggested = obj.optDouble("suggested_weight_kg")
+                val lastWeight = obj.optDouble("last_weight_kg")
+                val lastReps = obj.optInt("last_reps")
+                weightInput = if (suggested == suggested.toInt().toDouble()) {
+                    suggested.toInt().toString()
+                } else {
+                    suggested.toString()
+                }
+                suggestionText = "Last: ${lastWeight.toInt()}kg × $lastReps — try ${weightInput}kg"
+            }
+        }
+    }
+
+    private fun startRestTimer() {
+        restJob?.cancel()
+        restSecondsRemaining = DEFAULT_REST_SECONDS
+        restJob = viewModelScope.launch {
+            while (restSecondsRemaining > 0) {
+                delay(1000)
+                restSecondsRemaining--
+            }
+        }
+    }
 
     private fun targetReps(reps: String): Int = reps.filter { it.isDigit() }.toIntOrNull() ?: 1
 
@@ -67,6 +112,7 @@ class SessionViewModel : ViewModel() {
         setsLoggedForCurrent++
         sessionKcal += estimatedKcal
         statusText = "Set $setsLoggedForCurrent logged (syncing...)"
+        startRestTimer()
 
         viewModelScope.launch {
             val bodyJson = JSONObject()
@@ -95,10 +141,14 @@ class SessionViewModel : ViewModel() {
     }
 
     fun nextExercise() {
+        restJob?.cancel()
+        restSecondsRemaining = 0
         if (currentIndex < exercises.lastIndex) {
             currentIndex++
             setsLoggedForCurrent = 0
             statusText = ""
+            weightInput = ""
+            suggestionText = ""
         } else {
             finished = true
         }
@@ -109,6 +159,7 @@ class SessionViewModel : ViewModel() {
 fun SessionScreen(onFinish: () -> Unit, vm: SessionViewModel = viewModel()) {
     val context = LocalContext.current
     LaunchedEffect(Unit) { vm.init(WorkoutSessionStore.pendingExercises) }
+    LaunchedEffect(vm.currentIndex) { vm.loadSuggestion(context) }
 
     if (vm.finished) {
         SessionSummary(vm, onDone = onFinish)
@@ -162,6 +213,16 @@ fun SessionScreen(onFinish: () -> Unit, vm: SessionViewModel = viewModel()) {
                     "Burned this session: ${vm.sessionKcal.toInt()} kcal (approx.)",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                if (vm.suggestionText.isNotBlank()) {
+                    Text(vm.suggestionText, style = MaterialTheme.typography.bodySmall)
+                }
+                if (vm.restSecondsRemaining > 0) {
+                    Text(
+                        "Rest: ${vm.restSecondsRemaining}s",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(

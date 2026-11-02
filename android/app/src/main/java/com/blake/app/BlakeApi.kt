@@ -66,6 +66,9 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
     fun suggestWorkout(location: String, muscleGroup: String): Result<String> =
         get("$baseUrl/suggest/workout?location=${enc(location)}&muscle_group=${enc(muscleGroup)}")
 
+    fun suggestNextSet(exercise: String): Result<String> =
+        get("$baseUrl/suggest/next_set?exercise=${enc(exercise)}")
+
     fun suggestMeal(meal: String): Result<String> =
         get("$baseUrl/suggest/meal?meal=${enc(meal)}")
 
