@@ -274,14 +274,20 @@ class TodayViewModel : ViewModel() {
     fun logExpense(context: Context, amount: Double, category: String, note: String) {
         if (amount <= 0) return
         pendingSpend += amount
+        expenseResultText = "Logged ₹${amount.toInt()}, syncing..."
         viewModelScope.launch {
-            val bodyJson = JSONObject()
+            // Where it was spent, when allowed; never blocks or fails the save.
+            val location = LocationHelper.current(context)
+            val body = JSONObject()
                 .put("amount", amount)
                 .put("category", category)
                 .put("note", note.trim())
-                .toString()
-            OutboxRepository.enqueue(context, "/log/expense", "POST", bodyJson, "expense")
-            expenseResultText = "Logged \u20b9${amount.toInt()}, syncing..."
+            if (location != null) {
+                body.put("lat", location.latitude)
+                    .put("lon", location.longitude)
+                    .put("accuracy_m", location.accuracy.toDouble())
+            }
+            OutboxRepository.enqueue(context, "/log/expense", "POST", body.toString(), "expense")
         }
     }
 

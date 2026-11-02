@@ -73,3 +73,25 @@ def test_daily_summary_excludes_spend_from_previous_calendar_day(reg, db, monkey
     monkeypatch.setattr(clock, "now", lambda: today_0032)
     out = reg.call("expenses__daily_summary", {}, db)
     assert out["today"]["total"] == 0.0
+
+
+def test_log_expense_stores_location(reg, db):
+    out = reg.call("expenses__log_expense", {
+        "amount": 180, "category": "transport", "note": "Auto to office",
+        "lat": 12.9715987, "lon": 77.5945627, "accuracy_m": 18.26}, db)
+    assert out["logged"]["location"] == {"lat": 12.9716, "lon": 77.59456, "accuracy_m": 18.3}
+    stored = db.get(out["event_id"])["payload"]
+    assert stored["location"]["lat"] == 12.9716
+
+
+def test_log_expense_without_location_has_no_location_key(reg, db):
+    out = reg.call("expenses__log_expense", {"amount": 10, "category": "food"}, db)
+    assert "location" not in out["logged"]
+
+
+def test_log_expense_rejects_half_or_out_of_range_location(reg, db):
+    base = {"amount": 10, "category": "food"}
+    assert "error" in reg.call("expenses__log_expense", {**base, "lat": 12.0}, db)
+    assert "error" in reg.call("expenses__log_expense", {**base, "lat": 91, "lon": 10}, db)
+    assert "error" in reg.call("expenses__log_expense", {**base, "lat": 10, "lon": 181}, db)
+    assert db.query("expenses", "expense") == []

@@ -181,6 +181,10 @@ class LogExpenseRequest(BaseModel):
     category: str
     note: str = ""
     client_id: str | None = None
+    # Where it was spent, captured by the app when the user allows location.
+    lat: float | None = None
+    lon: float | None = None
+    accuracy_m: float | None = None
 
 
 @app.post("/log/expense", dependencies=[Depends(require_api_key)])

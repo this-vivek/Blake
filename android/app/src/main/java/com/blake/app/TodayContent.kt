@@ -1,6 +1,8 @@
 package com.blake.app
 
 import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -404,6 +406,16 @@ private fun SpendSheet(vm: TodayViewModel, onDismiss: () -> Unit) {
     var note by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("food") }
     val value = amount.toDoubleOrNull() ?: 0.0
+    val prefs = remember { context.getSharedPreferences(Prefs.NAME, Context.MODE_PRIVATE) }
+
+    fun save() {
+        vm.logExpense(context, value, category, note)
+        onDismiss()
+    }
+    // Asked once, the first time you save a spend; denying never blocks saving.
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { save() }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -457,9 +469,20 @@ private fun SpendSheet(vm: TodayViewModel, onDismiss: () -> Unit) {
                 }
             }
 
+            Text(
+                "Saved with where you spent it, if you allow location.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
             PrimaryButton("Save", enabled = value > 0, onClick = {
-                vm.logExpense(context, value, category, note)
-                onDismiss()
+                val asked = prefs.getBoolean("location_asked", false)
+                if (LocationHelper.hasPermission(context) || asked) {
+                    save()
+                } else {
+                    prefs.edit().putBoolean("location_asked", true).apply()
+                    permissionLauncher.launch(LocationHelper.PERMISSIONS)
+                }
             })
         }
     }
