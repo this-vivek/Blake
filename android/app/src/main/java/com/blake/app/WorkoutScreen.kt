@@ -137,7 +137,7 @@ class WorkoutViewModel : ViewModel() {
     }
 }
 
-private fun parseExercises(json: String): List<ExerciseItem> {
+internal fun parseExercises(json: String): List<ExerciseItem> {
     val groups = JSONObject(json).optJSONArray("groups") ?: return emptyList()
     val out = mutableListOf<ExerciseItem>()
     for (i in 0 until groups.length()) {

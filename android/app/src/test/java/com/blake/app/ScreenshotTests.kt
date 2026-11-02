@@ -31,9 +31,7 @@ class ScreenshotTests {
 
     private fun capture(name: String, dark: Boolean, content: @androidx.compose.runtime.Composable () -> Unit) {
         composeTestRule.setContent {
-            // dynamicColor off: Robolectric has no real wallpaper, so dynamic color would be
-            // non-deterministic noise rather than a meaningful screenshot difference.
-            BlakeTheme(darkTheme = dark, dynamicColor = false) { content() }
+            BlakeTheme(darkTheme = dark) { content() }
         }
         composeTestRule.onRoot().captureRoboImage("${name}_${if (dark) "dark" else "light"}.png")
     }

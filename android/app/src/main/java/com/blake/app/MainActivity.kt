@@ -166,6 +166,7 @@ fun BlakeApp() {
             composable("today") {
                 TodayScreen(
                     onNavigateToWorkout = { navController.navigate("workout") },
+                    onStartSession = { navController.navigate("session") },
                     vm = todayVm,
                 )
             }

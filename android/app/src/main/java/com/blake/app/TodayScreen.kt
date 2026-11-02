@@ -39,10 +39,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
 
-private val MEAL_SLOTS = listOf("breakfast", "lunch", "dinner", "snack")
-private val SLOT_LABELS = mapOf("breakfast" to "B", "lunch" to "L", "dinner" to "D", "snack" to "S")
+internal val MEAL_SLOTS = listOf("breakfast", "lunch", "dinner", "snack")
+internal val SLOT_LABELS = mapOf("breakfast" to "B", "lunch" to "L", "dinner" to "D", "snack" to "S")
 
-private fun defaultMealForHour(hour: Int): String = when (hour) {
+internal fun defaultMealForHour(hour: Int): String = when (hour) {
     in 5..10 -> "breakfast"
     in 11..15 -> "lunch"
     in 16..18 -> "snack"
@@ -76,6 +76,57 @@ class TodayViewModel : ViewModel() {
     var pendingSpend by mutableStateOf(0.0)
 
     var completingTaskIds by mutableStateOf<Set<Int>>(emptySet())
+
+    // Training card: today's program day, where you're training, and starting the session.
+    var trainingLocation by mutableStateOf("gym")
+    var programMuscleGroup by mutableStateOf<String?>(null)
+    var programIsRest by mutableStateOf(false)
+    var programLoaded by mutableStateOf(false)
+    var startingSession by mutableStateOf(false)
+    var startError by mutableStateOf("")
+
+    fun loadProgram(context: Context) {
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.programToday() }
+            result.onSuccess { json ->
+                val day = JSONObject(json).optJSONObject("day")
+                programIsRest = day?.optString("type") == "rest"
+                programMuscleGroup = if (!programIsRest) day?.optString("muscle_group") else null
+                programLoaded = true
+            }
+        }
+    }
+
+    /** Loads today's exercises for the program day, then hands them to the session screen.
+     * Any failure is shown on the card; the button never fails silently. */
+    fun startSession(context: Context, onReady: () -> Unit) {
+        val group = programMuscleGroup
+        if (group.isNullOrBlank()) {
+            startError = "No training day set for today. Open Settings to set your program."
+            return
+        }
+        startingSession = true
+        startError = ""
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.suggestWorkout(trainingLocation, group) }
+            startingSession = false
+            result.fold(
+                onSuccess = { json ->
+                    val exercises = parseExercises(json)
+                    if (exercises.isEmpty()) {
+                        startError = "No exercises found for $group at the $trainingLocation."
+                    } else {
+                        WorkoutSessionStore.pendingExercises = exercises
+                        WorkoutSessionStore.isProgramSession = true
+                        onReady()
+                    }
+                },
+                onFailure = { startError = "Couldn't load the session: ${it.message}" },
+            )
+        }
+    }
 
     /** Cache-first: render the last-known /today payload from Room immediately (if any),
      * then refresh from the network and persist the fresh copy for next time. */
@@ -220,18 +271,17 @@ class TodayViewModel : ViewModel() {
         }
     }
 
-    /** Quick-add defaults to "food" — the roadmap calls for a quick-add, not a full category
-     * picker; "food" covers the common case and the exact category can still be corrected
-     * later via chat or the web-only history view if ever needed. */
-    fun logExpense(context: Context) {
-        val amount = expenseAmount.toDoubleOrNull() ?: return
+    fun logExpense(context: Context, amount: Double, category: String, note: String) {
         if (amount <= 0) return
         pendingSpend += amount
         viewModelScope.launch {
-            val bodyJson = JSONObject().put("amount", amount).put("category", "food").toString()
+            val bodyJson = JSONObject()
+                .put("amount", amount)
+                .put("category", category)
+                .put("note", note.trim())
+                .toString()
             OutboxRepository.enqueue(context, "/log/expense", "POST", bodyJson, "expense")
-            expenseResultText = "Logged ₹${amount.toInt()} — syncing..."
-            expenseAmount = ""
+            expenseResultText = "Logged \u20b9${amount.toInt()}, syncing..."
         }
     }
 
@@ -400,326 +450,8 @@ private fun parseChatMeal(json: String): Pair<Int, List<Pair<String, String>>>? 
     return null
 }
 
-private fun optionalDouble(obj: JSONObject?, key: String): Double? {
+internal fun optionalDouble(obj: JSONObject?, key: String): Double? {
     if (obj == null || !obj.has(key) || obj.isNull(key)) return null
     return obj.optDouble(key)
-}
-
-@Composable
-fun TodayScreen(onNavigateToWorkout: () -> Unit = {}, vm: TodayViewModel = viewModel()) {
-    val context = LocalContext.current
-
-    LaunchedEffect(Unit) { vm.loadToday(context) }
-
-    Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        NutritionCard(vm, context)
-
-        if (vm.editingSlot != null) {
-            MealEditor(vm, context)
-        }
-
-        TrainingCard(vm.todayJson, onNavigateToWorkout)
-        SpendCard(vm, context)
-        TasksCard(vm, context)
-        NudgesRow(vm.todayJson)
-    }
-}
-
-@Composable
-private fun TrainingCard(todayJson: JSONObject?, onNavigateToWorkout: () -> Unit) {
-    val training = todayJson?.optJSONObject("training")
-    val setsToday = training?.optJSONArray("sets_today")
-    val setCount = setsToday?.length() ?: 0
-
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Training", style = MaterialTheme.typography.titleMedium)
-            if (setCount == 0) {
-                Text("No sets logged yet today", style = MaterialTheme.typography.bodyMedium)
-                Button(onClick = onNavigateToWorkout, modifier = Modifier.fillMaxWidth()) {
-                    Text("Start session")
-                }
-            } else {
-                val kcalBurned = training?.optDouble("kcal_burned_today") ?: 0.0
-                val groupsArr = training?.optJSONArray("muscle_groups_today")
-                val groups = (0 until (groupsArr?.length() ?: 0)).map { groupsArr!!.getString(it) }
-                val prCount = training?.optJSONArray("prs_today")?.length() ?: 0
-
-                Text(
-                    "$setCount set${if (setCount == 1) "" else "s"} logged" +
-                        if (groups.isNotEmpty()) " — ${groups.joinToString(", ")}" else "",
-                )
-                Text("${kcalBurned.toInt()} kcal burned today", style = MaterialTheme.typography.bodyMedium)
-                if (prCount > 0) {
-                    Text("🎉 $prCount PR${if (prCount > 1) "s" else ""} today", style = MaterialTheme.typography.bodyMedium)
-                }
-                TextButton(onClick = onNavigateToWorkout) { Text("Log another session") }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SpendCard(vm: TodayViewModel, context: Context) {
-    val spend = vm.todayJson?.optJSONObject("spend")
-    val actual = (spend?.optDouble("actual") ?: 0.0) + vm.pendingSpend
-    val goal = optionalDouble(spend, "goal")
-
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Spend", style = MaterialTheme.typography.titleMedium)
-            Text(
-                Format.currency(actual) + (goal?.let { " / ${Format.currency(it)}" } ?: ""),
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            if (goal != null && goal > 0) {
-                LinearProgressIndicator(
-                    progress = (actual / goal).toFloat().coerceIn(0f, 1f),
-                    modifier = Modifier.fillMaxWidth(),
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = vm.expenseAmount,
-                    onValueChange = { vm.expenseAmount = it },
-                    label = { Text("Quick-add ₹") },
-                    modifier = Modifier.weight(1f),
-                )
-                Button(
-                    onClick = { vm.logExpense(context) },
-                    enabled = (vm.expenseAmount.toDoubleOrNull() ?: 0.0) > 0,
-                ) { Text("Add") }
-            }
-            if (vm.expenseResultText.isNotBlank()) {
-                Text(vm.expenseResultText, style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
-}
-
-@Composable
-private fun TasksCard(vm: TodayViewModel, context: Context) {
-    val openTasks = vm.todayJson?.optJSONArray("open_tasks")
-    val count = openTasks?.length() ?: 0
-
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Tasks", style = MaterialTheme.typography.titleMedium)
-            val visible = (0 until count).map { openTasks!!.getJSONObject(it) }
-                .filterNot { it.optInt("id") in vm.completingTaskIds }
-            if (visible.isEmpty()) {
-                Text("Nothing open", style = MaterialTheme.typography.bodyMedium)
-            } else {
-                visible.forEach { task ->
-                    val taskId = task.optInt("id")
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Checkbox(checked = false, onCheckedChange = { vm.completeTask(context, taskId) })
-                        Text(task.optString("title"), modifier = Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun NudgesRow(todayJson: JSONObject?) {
-    val nudges = todayJson?.optJSONArray("nudges")
-    if (nudges == null || nudges.length() == 0) return
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        for (i in 0 until nudges.length()) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.tertiaryContainer,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    nudges.getString(i),
-                    modifier = Modifier.padding(12.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun NutritionCard(vm: TodayViewModel, context: Context) {
-    val nutrition = vm.todayJson?.optJSONObject("nutrition")
-    val kcal = nutrition?.optJSONObject("kcal")
-    val protein = nutrition?.optJSONObject("protein_g")
-
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                KcalRing(
-                    actual = kcal?.optDouble("actual") ?: 0.0,
-                    goal = optionalDouble(kcal, "goal"),
-                )
-                ProteinBar(
-                    actual = protein?.optDouble("actual") ?: 0.0,
-                    goal = optionalDouble(protein, "goal"),
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            SlotRow(vm, nutrition, context)
-            if (vm.logResultText.isNotBlank()) {
-                Text(vm.logResultText, style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
-}
-
-@Composable
-private fun KcalRing(actual: Double, goal: Double?, modifier: Modifier = Modifier) {
-    val fraction = if (goal != null && goal > 0) (actual / goal).toFloat().coerceIn(0f, 1f) else 0f
-    Box(modifier = modifier.size(72.dp), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(
-            progress = fraction,
-            modifier = Modifier.fillMaxSize(),
-            strokeWidth = 6.dp,
-            trackColor = MaterialTheme.colorScheme.surfaceVariant,
-        )
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(Format.kcal(actual), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-            if (goal != null) {
-                Text("/ ${Format.kcal(goal)}", style = MaterialTheme.typography.labelSmall)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProteinBar(actual: Double, goal: Double?, modifier: Modifier = Modifier) {
-    val fraction = if (goal != null && goal > 0) (actual / goal).toFloat().coerceIn(0f, 1f) else 0f
-    Column(modifier = modifier) {
-        Text(
-            "Protein: ${Format.grams(actual)}" + (goal?.let { " / ${Format.grams(it)}" } ?: ""),
-            style = MaterialTheme.typography.labelMedium,
-        )
-        LinearProgressIndicator(
-            progress = fraction,
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-            trackColor = MaterialTheme.colorScheme.surfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun SlotRow(vm: TodayViewModel, nutrition: JSONObject?, context: Context) {
-    val serverLogged = remember(nutrition) {
-        val arr = nutrition?.optJSONArray("meal_slots_logged")
-        if (arr == null) emptySet() else (0 until arr.length()).map { arr.getString(it) }.toSet()
-    }
-    val loggedSlots = serverLogged + vm.locallyLoggedSlots
-    val usualBySlot = nutrition?.optJSONObject("usual")
-
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        MEAL_SLOTS.forEach { slot ->
-            val usual = usualBySlot?.optJSONObject(slot)
-            val timesLogged = usual?.optInt("times_logged", 0) ?: 0
-            SlotChip(
-                label = SLOT_LABELS[slot] ?: slot,
-                logged = slot in loggedSlots,
-                hasUsual = timesLogged > 0,
-                onLogUsual = { if (usual != null) vm.logUsual(context, slot, usual) },
-                onEdit = { vm.startEditingSlot(context, slot) },
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
-
-@Composable
-private fun SlotChip(
-    label: String,
-    logged: Boolean,
-    hasUsual: Boolean,
-    onLogUsual: () -> Unit,
-    onEdit: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = if (logged) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-        modifier = modifier.clickable(enabled = !logged) { if (hasUsual) onLogUsual() else onEdit() },
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(
-                when {
-                    logged -> "✓"
-                    hasUsual -> "Usual"
-                    else -> "+"
-                },
-                style = MaterialTheme.typography.labelSmall,
-            )
-        }
-    }
-}
-
-@Composable
-private fun MealEditor(vm: TodayViewModel, context: Context) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "${vm.mealType.replaceFirstChar { it.uppercase() }} suggestion",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Row {
-                    TextButton(onClick = { vm.refreshMeal(context) }, enabled = !vm.mealRefreshing) {
-                        Text(if (vm.mealRefreshing) "Refreshing..." else "🔄 Refresh")
-                    }
-                    TextButton(onClick = { vm.editingSlot = null }) { Text("✕") }
-                }
-            }
-
-            if (vm.mealLoading) {
-                Text("Loading...")
-            } else {
-                vm.mealNames.forEachIndexed { idx, name ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(name, modifier = Modifier.weight(1f))
-                        OutlinedTextField(
-                            value = vm.mealGrams.getOrElse(idx) { "" },
-                            onValueChange = { vm.updateGram(idx, it) },
-                            label = { Text("g") },
-                            modifier = Modifier.width(90.dp)
-                        )
-                    }
-                }
-                if (vm.mealTotalText.isNotBlank()) {
-                    Text(vm.mealTotalText, style = MaterialTheme.typography.bodyMedium)
-                }
-                if (vm.mealNames.isNotEmpty()) {
-                    Button(onClick = { vm.logMeal(context) }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Log this meal")
-                    }
-                }
-            }
-        }
-    }
 }
 
