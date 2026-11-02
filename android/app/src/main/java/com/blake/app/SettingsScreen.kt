@@ -222,9 +222,53 @@ fun SettingsScreen(
             }
         }
 
+        MusicCard(context)
+
         QuietButton("Unmatched items", onClick = onNavigateToUnmatched)
 
         DataCard(vm, context, onDataReset)
+    }
+}
+
+@Composable
+private fun MusicCard(context: Context) {
+    var link by remember { mutableStateOf(MusicLauncher.url(context)) }
+    var ask by remember { mutableStateOf(MusicLauncher.askBeforeSession(context)) }
+    var saved by remember { mutableStateOf(false) }
+
+    BlakeCard {
+        SectionLabel("Workout music")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Ask before each session", style = MaterialTheme.typography.bodyLarge)
+            Switch(checked = ask, onCheckedChange = {
+                ask = it
+                MusicLauncher.setAskBeforeSession(context, it)
+            })
+        }
+        OutlinedTextField(
+            value = link,
+            onValueChange = { link = it; saved = false },
+            label = { Text("YouTube Music playlist link (optional)") },
+            singleLine = true,
+            shape = RoundedCornerShape(Radius.md),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            "Yes opens the link in YouTube Music. Apps cannot press play inside it for you.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SecondaryButton("Save link", onClick = {
+            MusicLauncher.saveUrl(context, link)
+            saved = true
+        })
+        if (saved) {
+            Text("Saved", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.blake.success)
+        }
     }
 }
 

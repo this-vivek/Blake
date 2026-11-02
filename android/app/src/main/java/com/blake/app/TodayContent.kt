@@ -18,12 +18,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -55,22 +60,32 @@ fun TodayScreen(
         vm.loadProgram(context)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = Spacing.lg)
-            .padding(top = Spacing.xl, bottom = Spacing.xl),
-        verticalArrangement = Arrangement.spacedBy(Spacing.xl),
-    ) {
-        TodayHeader()
-        Hero(vm)
-        NextMeal(vm, context)
-        if (vm.editingSlot != null) MealEditor(vm, context)
-        Nudges(vm.todayJson)
-        TrainingCard(vm, context, onStartSession, onNavigateToWorkout)
-        SpendCard(vm, onAdd = { showSpend = true })
-        TasksCard(vm, context)
+    val scroll = rememberScrollState()
+    val density = LocalDensity.current
+    val collapseRangePx = with(density) { (HERO_EXPANDED - HERO_COLLAPSED).toPx() }
+    // 0 = ring fully open, 1 = tucked into the top-left bar. Driven directly by the scroll
+    // position, so it follows the finger both ways.
+    val progress = (scroll.value / collapseRangePx).coerceIn(0f, 1f)
+
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scroll)
+                .padding(horizontal = Spacing.lg)
+                .padding(bottom = Spacing.xl),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xl),
+        ) {
+            // Room for the expanded header, which is drawn above the list.
+            Spacer(Modifier.height(HERO_EXPANDED))
+            NextMeal(vm, context)
+            if (vm.editingSlot != null) MealEditor(vm, context)
+            Nudges(vm.todayJson)
+            TrainingCard(vm, context, onStartSession, onNavigateToWorkout)
+            SpendCard(vm, onAdd = { showSpend = true })
+            TasksCard(vm, context)
+        }
+        CollapsingHero(vm, progress)
     }
 
     if (showSpend) {
@@ -78,17 +93,15 @@ fun TodayScreen(
     }
 }
 
-@Composable
-private fun TodayHeader() {
-    val date = remember { SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date()) }
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text("Today", style = MaterialTheme.typography.titleLarge)
-        Text(date, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
+private val HERO_EXPANDED = 376.dp
+private val HERO_COLLAPSED = 76.dp
+private val RING_BIG = 200.dp
+private val RING_SMALL = 44.dp
 
+/** Title, kcal ring and protein bar that shrink into a compact bar (ring + "kcal left" at
+ * the top left, protein at the right) as the page scrolls, and grow back when it scrolls up. */
 @Composable
-private fun Hero(vm: TodayViewModel) {
+private fun CollapsingHero(vm: TodayViewModel, progress: Float) {
     val nutrition = vm.todayJson?.optJSONObject("nutrition")
     val kcal = nutrition?.optJSONObject("kcal")
     val protein = nutrition?.optJSONObject("protein_g")
@@ -97,13 +110,93 @@ private fun Hero(vm: TodayViewModel) {
     val proteinActual = protein?.optDouble("actual") ?: 0.0
     val proteinGoal = optionalDouble(protein, "goal")
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Spacing.xl),
+    val over = goal != null && actual > goal
+    val big = when {
+        goal == null -> grouped(actual.toInt())
+        over -> grouped((actual - goal).toInt())
+        else -> grouped((goal - actual).toInt())
+    }
+    val unit = when {
+        goal == null -> "kcal eaten"
+        over -> "kcal over"
+        else -> "kcal left"
+    }
+    val date = remember { SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date()) }
+
+    val expandedAlpha = (1f - progress * 2f).coerceIn(0f, 1f)
+    val collapsedAlpha = (progress * 2f - 1f).coerceIn(0f, 1f)
+    val titleAlpha = (1f - progress * 1.6f).coerceIn(0f, 1f)
+    val height = lerp(HERO_EXPANDED, HERO_COLLAPSED, progress)
+    val ringSize = lerp(RING_BIG, RING_SMALL, progress)
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height)
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        KcalRing(actual, goal)
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        val ringX = lerp((maxWidth - RING_BIG) / 2, Spacing.lg, progress)
+        val ringY = lerp(84.dp, (HERO_COLLAPSED - RING_SMALL) / 2, progress)
+
+        // Title and date (fade out first)
+        Column(
+            modifier = Modifier
+                .padding(start = Spacing.lg, top = Spacing.xl)
+                .alpha(titleAlpha),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text("Today", style = MaterialTheme.typography.titleLarge)
+            Text(date, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        // The ring: one element that moves and resizes
+        KcalRing(
+            actual = actual,
+            goal = goal,
+            size = ringSize,
+            stroke = lerp(8.dp, 4.dp, progress),
+            centerText = big,
+            centerUnit = unit,
+            centerAlpha = expandedAlpha,
+            modifier = Modifier.offset(x = ringX, y = ringY),
+        )
+
+        // Compact readout beside the small ring
+        Row(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = Spacing.lg + RING_SMALL + Spacing.md, end = Spacing.lg)
+                .fillMaxWidth()
+                .alpha(collapsedAlpha),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column {
+                Text("$big $unit", style = MaterialTheme.typography.titleSmall)
+                if (goal != null) {
+                    Text(
+                        "of ${grouped(goal.toInt())}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Text(
+                "Protein " + Format.grams(proteinActual) + (proteinGoal?.let { " / ${Format.grams(it)}" } ?: ""),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        // Protein bar (fades out as the bar collapses)
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = Spacing.lg)
+                .padding(bottom = Spacing.lg)
+                .alpha(expandedAlpha),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 SectionLabel("Protein")
                 Text(
@@ -115,39 +208,46 @@ private fun Hero(vm: TodayViewModel) {
             val fraction = if (proteinGoal != null && proteinGoal > 0) (proteinActual / proteinGoal).toFloat() else 0f
             ThinBar(fraction)
         }
+
+        HorizontalDivider(
+            modifier = Modifier.align(Alignment.BottomCenter).alpha(collapsedAlpha),
+            color = MaterialTheme.blake.divider,
+        )
     }
 }
 
 @Composable
-private fun KcalRing(actual: Double, goal: Double?) {
+private fun KcalRing(
+    actual: Double,
+    goal: Double?,
+    size: Dp,
+    stroke: Dp,
+    centerText: String,
+    centerUnit: String,
+    centerAlpha: Float,
+    modifier: Modifier = Modifier,
+) {
     val over = goal != null && actual > goal
     val fraction = if (goal != null && goal > 0) (actual / goal).toFloat().coerceIn(0f, 1f) else 0f
     val track = MaterialTheme.blake.divider
-    val progress = if (over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    val big = when {
-        goal == null -> grouped(actual.toInt())
-        over -> grouped((actual - goal).toInt())
-        else -> grouped((goal - actual).toInt())
-    }
-    val unit = when {
-        goal == null -> "kcal eaten"
-        over -> "kcal over"
-        else -> "kcal left"
-    }
-    Box(Modifier.size(200.dp), contentAlignment = Alignment.Center) {
+    val progressColor = if (over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    Box(modifier.size(size), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
-            val stroke = 8.dp.toPx()
-            val inset = stroke / 2
-            val arcSize = Size(size.width - stroke, size.height - stroke)
-            drawArc(track, -90f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
+            val strokePx = stroke.toPx()
+            val inset = strokePx / 2
+            val arcSize = Size(this.size.width - strokePx, this.size.height - strokePx)
+            drawArc(track, -90f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(strokePx))
             if (fraction > 0f) {
-                drawArc(progress, -90f, 360f * fraction, false, Offset(inset, inset), arcSize,
-                    style = Stroke(stroke, cap = StrokeCap.Round))
+                drawArc(progressColor, -90f, 360f * fraction, false, Offset(inset, inset), arcSize,
+                    style = Stroke(strokePx, cap = StrokeCap.Round))
             }
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(big, style = MaterialTheme.typography.displayMedium)
-            Text(unit, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.alpha(centerAlpha)) {
+            Text(
+                centerText,
+                style = MaterialTheme.typography.displayMedium.copy(fontSize = (44f * size.value / 200f).sp),
+            )
+            Text(centerUnit, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

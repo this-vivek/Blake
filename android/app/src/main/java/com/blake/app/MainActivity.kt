@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
@@ -148,6 +149,12 @@ fun BlakeApp() {
     // Activity-scoped so the Log sheet and the Today screen share one chat state.
     val todayVm: TodayViewModel = viewModel()
     var showLog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    // A session start waiting on the "Play music?" answer.
+    var pendingStart by remember { mutableStateOf<(() -> Unit)?>(null) }
+    fun beginSession(go: () -> Unit) {
+        if (MusicLauncher.askBeforeSession(context)) pendingStart = go else go()
+    }
 
     // The session is full screen with its own close button.
     val hideBar = currentRoute == "session"
@@ -172,7 +179,7 @@ fun BlakeApp() {
             composable("today") {
                 TodayScreen(
                     onNavigateToWorkout = { navController.navigate("workout") },
-                    onStartSession = { navController.navigate("session") },
+                    onStartSession = { beginSession { navController.navigate("session") } },
                     vm = todayVm,
                 )
             }
@@ -181,7 +188,7 @@ fun BlakeApp() {
                     onStartSession = { exercises ->
                         WorkoutSessionStore.pendingExercises = exercises
                         WorkoutSessionStore.isProgramSession = false
-                        navController.navigate("session")
+                        beginSession { navController.navigate("session") }
                     },
                     onBack = { navController.popBackStack() },
                 )
@@ -206,5 +213,21 @@ fun BlakeApp() {
 
     if (showLog) {
         LogSheet(vm = todayVm, onDismiss = { showLog = false })
+    }
+
+    pendingStart?.let { go ->
+        AlertDialog(
+            onDismissRequest = { pendingStart = null; go() },
+            title = { Text("Play music?") },
+            text = { Text("Open YouTube Music for your workout. Blake keeps your session running while you are away.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingStart = null
+                    go()
+                    MusicLauncher.open(context)
+                }) { Text("Play music") }
+            },
+            dismissButton = { TextButton(onClick = { pendingStart = null; go() }) { Text("Not now") } },
+        )
     }
 }
