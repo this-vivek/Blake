@@ -195,6 +195,7 @@ fun BlakeApp() {
                 SettingsScreen(
                     onBack = { navController.popBackStack() },
                     onNavigateToUnmatched = { navController.navigate("unmatched") },
+                    onDataReset = { todayVm.clearLocalState() },
                 )
             }
             composable("unmatched") {

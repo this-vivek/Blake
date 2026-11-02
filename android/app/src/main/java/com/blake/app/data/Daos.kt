@@ -15,6 +15,9 @@ interface TodayDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: TodayCacheEntity)
+
+    @Query("DELETE FROM today_cache")
+    suspend fun clear()
 }
 
 @Dao
@@ -39,6 +42,9 @@ interface EventDao {
 
     @Query("DELETE FROM cached_events WHERE id = :tempId AND module = :module")
     suspend fun deleteById(tempId: Long, module: String)
+
+    @Query("DELETE FROM cached_events")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -60,4 +66,7 @@ interface OutboxDao {
 
     @Delete
     suspend fun delete(entity: OutboxEntity)
+
+    @Query("DELETE FROM outbox")
+    suspend fun clearAll()
 }

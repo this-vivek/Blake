@@ -9,6 +9,7 @@ from app.core.db import Db
 from app.core.registry import Registry
 from app.core.router import run_turn
 from app.meal_refresh import refresh_meal_suggestion
+from app.reset import reset_day, reset_logs
 from app.today import build_today
 from modules.meals import add_custom_food, edit_meal, list_unmatched, resolve_unmatched
 from modules.workouts import complete_program_day, suggested_next, today_program_day
@@ -195,6 +196,26 @@ def log_expense_direct(req: LogExpenseRequest):
 @app.post("/tasks/{task_id}/complete", dependencies=[Depends(require_api_key)])
 def complete_task_direct(task_id: int):
     return registry.call("tasks__complete_by_id", {"task_id": task_id}, db)
+
+
+class ResetRequest(BaseModel):
+    confirm: bool = False
+
+
+@app.post("/reset/day", dependencies=[Depends(require_api_key)])
+def reset_today(req: ResetRequest):
+    """Undo everything logged today (meals, sets, spends, task completions)."""
+    if not req.confirm:
+        raise HTTPException(status_code=400, detail="send {\"confirm\": true} to reset")
+    return reset_day(db)
+
+
+@app.post("/reset/logs", dependencies=[Depends(require_api_key)])
+def reset_all_logs(req: ResetRequest):
+    """Undo every log entry. Keeps goals, program, custom foods and recipes."""
+    if not req.confirm:
+        raise HTTPException(status_code=400, detail="send {\"confirm\": true} to reset")
+    return reset_logs(db)
 
 
 @app.post("/events/{event_id}/void", dependencies=[Depends(require_api_key)])

@@ -70,6 +70,33 @@ class SettingsViewModel : ViewModel() {
         }
     }
 
+    var dataStatus by mutableStateOf("")
+
+    /** Resets on the server, then clears everything cached or queued on the phone so a
+     * pending offline write can't bring the data straight back. */
+    fun resetData(context: Context, path: String, doneMessage: String, onDone: () -> Unit) {
+        val api = Prefs.apiFor(context)
+        dataStatus = "Resetting..."
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                api.rawRequest("POST", path, JSONObject().put("confirm", true).toString())
+            }
+            result.fold(
+                onSuccess = {
+                    val db = BlakeDatabase.get(context)
+                    withContext(Dispatchers.IO) {
+                        db.outboxDao().clearAll()
+                        db.eventDao().clearAll()
+                        db.todayDao().clear()
+                    }
+                    onDone()
+                    dataStatus = doneMessage
+                },
+                onFailure = { dataStatus = "Couldn't reset: ${it.message}" },
+            )
+        }
+    }
+
     fun saveGoals(context: Context) {
         val api = Prefs.apiFor(context)
         viewModelScope.launch {
@@ -101,7 +128,12 @@ class SettingsViewModel : ViewModel() {
 }
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit = {}, onNavigateToUnmatched: () -> Unit = {}, vm: SettingsViewModel = viewModel()) {
+fun SettingsScreen(
+    onBack: () -> Unit = {},
+    onNavigateToUnmatched: () -> Unit = {},
+    onDataReset: () -> Unit = {},
+    vm: SettingsViewModel = viewModel(),
+) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences(Prefs.NAME, Context.MODE_PRIVATE)
     var baseUrl by remember {
@@ -191,5 +223,50 @@ fun SettingsScreen(onBack: () -> Unit = {}, onNavigateToUnmatched: () -> Unit = 
         }
 
         QuietButton("Unmatched items", onClick = onNavigateToUnmatched)
+
+        DataCard(vm, context, onDataReset)
+    }
+}
+
+@Composable
+private fun DataCard(vm: SettingsViewModel, context: Context, onDataReset: () -> Unit) {
+    var confirm by remember { mutableStateOf<String?>(null) }
+
+    BlakeCard {
+        SectionLabel("Data")
+        Text(
+            "Resets undo log entries; nothing is deleted. Goals, your program, custom foods and recipes are kept.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SecondaryButton("Reset today", onClick = { confirm = "day" })
+        SecondaryButton("Reset all logs", onClick = { confirm = "all" })
+        if (vm.dataStatus.isNotBlank()) {
+            Text(vm.dataStatus, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+
+    val which = confirm
+    if (which != null) {
+        val isDay = which == "day"
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text(if (isDay) "Reset today?" else "Reset all logs?") },
+            text = {
+                Text(
+                    if (isDay) "Today's meals, sets, spends and completed tasks will be undone."
+                    else "Every meal, set, spend, task and chat entry will be undone. Goals, program, custom foods and recipes stay."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirm = null
+                    if (isDay) vm.resetData(context, "/reset/day", "Today was reset", onDataReset)
+                    else vm.resetData(context, "/reset/logs", "All logs were reset", onDataReset)
+                }) { Text("Reset", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+        )
     }
 }

@@ -85,6 +85,21 @@ class TodayViewModel : ViewModel() {
     var startingSession by mutableStateOf(false)
     var startError by mutableStateOf("")
 
+    /** After a server-side reset: drop everything the phone remembered about today. */
+    fun clearLocalState() {
+        todayJson = null
+        locallyLoggedSlots = emptySet()
+        pendingSpend = 0.0
+        expenseResultText = ""
+        logResultText = ""
+        chatResultText = ""
+        chatEventIds = emptyList()
+        chatUndone = emptySet()
+        chatMealId = null
+        chatMealItems = emptyList()
+        editingSlot = null
+    }
+
     fun loadProgram(context: Context) {
         val api = Prefs.apiFor(context)
         viewModelScope.launch {
