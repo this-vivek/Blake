@@ -23,6 +23,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.blake.app.ui.pop.PopButton
 import com.blake.app.ui.pop.PopTile
+import com.blake.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -158,165 +159,101 @@ internal fun parseExercises(json: String): List<ExerciseItem> {
     return out
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun WorkoutScreen(onStartSession: (List<ExerciseItem>) -> Unit, vm: WorkoutViewModel = viewModel()) {
+fun WorkoutScreen(
+    onStartSession: (List<ExerciseItem>) -> Unit,
+    onBack: () -> Unit = {},
+    vm: WorkoutViewModel = viewModel(),
+) {
     val context = LocalContext.current
-    LaunchedEffect(Unit) { if (!vm.programLoaded) vm.loadProgramToday(context) }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = Spacing.lg)
+            .padding(top = Spacing.lg, bottom = Spacing.xl),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
-        if (vm.programLoaded) {
-            ProgramDayCard(vm, context)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            QuietButton("Back", onClick = onBack)
+            Text("Choose a workout", style = MaterialTheme.typography.titleLarge)
         }
 
-        Text("Where are you training?", style = MaterialTheme.typography.titleLarge)
-
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PopTile(
-                selected = vm.location == "gym",
-                onClick = { vm.selectLocation("gym") },
-                modifier = Modifier.weight(1f),
-            ) {
-                LocationTileContent("🏢", "Gym")
+        BlakeCard {
+            SectionLabel("Where")
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                BlakeChip("Gym", selected = vm.location == "gym", onClick = {
+                    vm.location = if (vm.location == "gym") null else "gym"
+                    vm.exercises = emptyList()
+                })
+                BlakeChip("Home", selected = vm.location == "home", onClick = {
+                    vm.location = if (vm.location == "home") null else "home"
+                    vm.exercises = emptyList()
+                })
             }
-            PopTile(
-                selected = vm.location == "home",
-                onClick = { vm.selectLocation("home") },
-                modifier = Modifier.weight(1f),
+            SectionLabel("Muscle groups")
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
-                LocationTileContent("🏠", "Home")
+                MUSCLE_GROUP_OPTIONS.forEach { option ->
+                    BlakeChip(
+                        option.label,
+                        selected = option.id in vm.selectedGroups,
+                        onClick = {
+                            vm.toggleGroup(option.id)
+                            vm.exercises = emptyList()
+                        },
+                    )
+                }
             }
-        }
-
-        if (vm.loading) {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+            val ready = vm.location != null && vm.selectedGroups.isNotEmpty() && !vm.loading
+            val hasPlan = vm.exercises.isNotEmpty()
+            if (hasPlan) {
+                SecondaryButton("Refresh plan", enabled = ready, onClick = { vm.confirmGroups(context) })
+            } else {
+                PrimaryButton(
+                    text = if (vm.loading) "Loading..." else "Get plan",
+                    enabled = ready,
+                    onClick = { vm.confirmGroups(context) },
+                )
+            }
+            if (vm.location == null || vm.selectedGroups.isEmpty()) {
+                Text(
+                    "Pick where you are and at least one muscle group.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
 
         if (vm.errorText.isNotBlank()) {
-            Text(vm.errorText, color = MaterialTheme.colorScheme.error)
+            Text(vm.errorText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
 
         if (vm.exercises.isNotEmpty()) {
-            val byGroup = vm.exercises.groupBy { it.group }
-            byGroup.forEach { (group, items) ->
+            vm.exercises.groupBy { it.group }.forEach { (group, items) ->
                 val option = MUSCLE_GROUP_OPTIONS.find { it.id == group }
-                Text(
-                    "${MUSCLE_GROUP_EMOJI[group] ?: "🏋️"} ${option?.label ?: group}",
-                    style = MaterialTheme.typography.titleMedium,
-                )
+                SectionLabel(option?.label ?: group)
                 items.forEach { ex -> ExerciseCard(ex) }
             }
-
-            PopButton(
-                onClick = { onStartSession(vm.exercises) },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Start Session", fontWeight = FontWeight.Bold)
-            }
-        }
-    }
-
-    if (vm.showSheet) {
-        MuscleGroupSheet(vm, onDismiss = { vm.showSheet = false }, onConfirm = { vm.confirmGroups(context) })
-    }
-}
-
-@Composable
-private fun ProgramDayCard(vm: WorkoutViewModel, context: Context) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                "Today's plan — Day ${(vm.programDayIndex ?: 0) + 1}",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            if (vm.programIsRest) {
-                Text("Rest day", style = MaterialTheme.typography.bodyLarge)
-                PopButton(onClick = { vm.markRestDayComplete(context) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Mark complete", fontWeight = FontWeight.Bold)
-                }
-            } else {
-                val group = vm.programMuscleGroup
-                val label = MUSCLE_GROUP_OPTIONS.find { it.id == group }?.label ?: group ?: "?"
-                Text(
-                    "${MUSCLE_GROUP_EMOJI[group] ?: "🏋️"} $label",
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    PopButton(onClick = { vm.startProgramDay(context, "gym") }, modifier = Modifier.weight(1f)) {
-                        Text("Gym")
-                    }
-                    PopButton(onClick = { vm.startProgramDay(context, "home") }, modifier = Modifier.weight(1f)) {
-                        Text("Home")
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LocationTileContent(emoji: String, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(emoji, style = MaterialTheme.typography.displayMedium)
-        Spacer(Modifier.height(8.dp))
-        Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun MuscleGroupSheet(vm: WorkoutViewModel, onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(16.dp).padding(bottom = 32.dp)) {
-            Text("What are you training today?", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(16.dp))
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.height(260.dp),
-            ) {
-                items(MUSCLE_GROUP_OPTIONS) { option ->
-                    MuscleGroupTile(
-                        option = option,
-                        selected = option.id in vm.selectedGroups,
-                        onClick = { vm.toggleGroup(option.id) },
-                    )
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-            PopButton(
-                onClick = onConfirm,
-                enabled = vm.selectedGroups.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Get My Plan (${vm.selectedGroups.size} selected)", fontWeight = FontWeight.Bold)
-            }
-        }
-    }
-}
-
-@Composable
-private fun MuscleGroupTile(option: MuscleGroupOption, selected: Boolean, onClick: () -> Unit) {
-    PopTile(selected = selected, onClick = onClick, height = 90.dp) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(MUSCLE_GROUP_EMOJI[option.id] ?: "🏋️", style = MaterialTheme.typography.headlineMedium)
-            Text(option.label, style = MaterialTheme.typography.labelSmall)
+            PrimaryButton("Start session", onClick = { onStartSession(vm.exercises) })
         }
     }
 }
 
 @Composable
 private fun ExerciseCard(ex: ExerciseItem) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(Radius.md),
+        color = MaterialTheme.colorScheme.surface,
+    ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(Spacing.md),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val imageUrl = EXERCISE_IMAGES[ex.name]
@@ -325,13 +262,10 @@ private fun ExerciseCard(ex: ExerciseItem) {
                     model = imageUrl,
                     contentDescription = ex.name,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
+                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(Radius.sm)),
                 )
-            } else {
-                Text(MUSCLE_GROUP_EMOJI[ex.group] ?: "🏋️", style = MaterialTheme.typography.headlineSmall)
             }
-            Text(ex.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f))
+            Text(ex.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
             Text(
                 if (ex.sets > 1) "${ex.sets} × ${ex.reps}" else ex.reps,
                 style = MaterialTheme.typography.bodyMedium,

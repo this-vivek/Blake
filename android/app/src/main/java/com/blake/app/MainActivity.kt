@@ -19,7 +19,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -68,10 +67,17 @@ private val RIGHT_TABS = listOf(
     NavDestination("settings", "Settings", BlakeIcons.Settings),
 )
 
-private fun NavHostController.navigateSingleTopTo(route: String) = navigate(route) {
-    popUpTo(graph.findStartDestination().id) { saveState = true }
-    launchSingleTop = true
-    restoreState = true
+/** Tabs are plain destinations: picking one never restores stale saved state. Today is home,
+ * so picking it pops everything above it (Workout, Session, Unmatched). */
+private fun NavHostController.navigateSingleTopTo(route: String) {
+    if (route == "today") {
+        if (!popBackStack("today", inclusive = false)) navigate("today") { launchSingleTop = true }
+        return
+    }
+    navigate(route) {
+        popUpTo("today") { inclusive = false }
+        launchSingleTop = true
+    }
 }
 
 @Composable
@@ -171,10 +177,14 @@ fun BlakeApp() {
                 )
             }
             composable("workout") {
-                WorkoutScreen(onStartSession = { exercises ->
-                    WorkoutSessionStore.pendingExercises = exercises
-                    navController.navigate("session")
-                })
+                WorkoutScreen(
+                    onStartSession = { exercises ->
+                        WorkoutSessionStore.pendingExercises = exercises
+                        WorkoutSessionStore.isProgramSession = false
+                        navController.navigate("session")
+                    },
+                    onBack = { navController.popBackStack() },
+                )
             }
             composable("session") {
                 SessionScreen(onFinish = { navController.popBackStack() })
