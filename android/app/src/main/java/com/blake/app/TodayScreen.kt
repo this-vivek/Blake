@@ -342,7 +342,7 @@ class TodayViewModel : ViewModel() {
                         chatEventIds = chatEventIds.map { if (it.second == id) it.first to newId else it }
                         chatMealId = newId
                         val total = obj.optJSONObject("total")
-                        chatResultText = "Updated � ${Format.kcal(total?.optDouble("kcal", 0.0) ?: 0.0)}"
+                        chatResultText = "Updated — ${Format.kcal(total?.optDouble("kcal", 0.0) ?: 0.0)}"
                     }
                 },
                 onFailure = { chatResultText = "Couldn't save: ${it.message}" }
@@ -425,14 +425,6 @@ fun TodayScreen(onNavigateToWorkout: () -> Unit = {}, vm: TodayViewModel = viewM
         SpendCard(vm, context)
         TasksCard(vm, context)
         NudgesRow(vm.todayJson)
-
-        Divider()
-
-        Text("Log anything", style = MaterialTheme.typography.titleMedium)
-        if (vm.chatResultText.isNotBlank()) {
-            ChatResultCard(vm)
-        }
-        Composer(vm)
     }
 }
 
@@ -731,137 +723,3 @@ private fun MealEditor(vm: TodayViewModel, context: Context) {
     }
 }
 
-@Composable
-private fun Composer(vm: TodayViewModel) {
-    val context = LocalContext.current
-    val pickImage = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri -> vm.chatImageUri = uri }
-
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            vm.chatImageUri?.let { uri ->
-                Box(contentAlignment = Alignment.TopEnd) {
-                    AsyncImage(
-                        model = uri,
-                        contentDescription = "Attached photo",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(96.dp)
-                            .clip(RoundedCornerShape(12.dp)),
-                    )
-                    IconButton(
-                        onClick = { vm.chatImageUri = null },
-                        modifier = Modifier.size(28.dp),
-                    ) {
-                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface) {
-                            Text(
-                                "✕",
-                                modifier = Modifier.padding(4.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                        }
-                    }
-                }
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = vm.chatInput,
-                    onValueChange = { vm.chatInput = it },
-                    placeholder = { Text("Log anything...") },
-                    shape = RoundedCornerShape(24.dp),
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(
-                    onClick = { pickImage.launch("image/*") },
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surface),
-                ) {
-                    Text("📷")
-                }
-                IconButton(
-                    onClick = {
-                        val uri = vm.chatImageUri
-                        val bytes = uri?.let {
-                            context.contentResolver.openInputStream(it)?.use { s -> s.readBytes() }
-                        }
-                        val mimeType = uri?.let { context.contentResolver.getType(it) }
-                        vm.sendChat(context, bytes, mimeType)
-                    },
-                    enabled = !vm.chatLoading && (vm.chatInput.isNotBlank() || vm.chatImageUri != null),
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (!vm.chatLoading && (vm.chatInput.isNotBlank() || vm.chatImageUri != null)) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            }
-                        ),
-                ) {
-                    if (vm.chatLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                        )
-                    } else {
-                        Text("➤", color = MaterialTheme.colorScheme.onPrimary)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChatResultCard(vm: TodayViewModel) {
-    val context = LocalContext.current
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(vm.chatResultText)
-            if (vm.chatMealId != null && vm.chatMealId !in vm.chatUndone) {
-                vm.chatMealItems.forEachIndexed { i, (name, grams) ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Text(name, modifier = Modifier.weight(1f))
-                        OutlinedTextField(
-                            value = grams,
-                            onValueChange = { vm.setChatMealGrams(i, it) },
-                            suffix = { Text("g") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.width(110.dp),
-                        )
-                    }
-                }
-                TextButton(onClick = { vm.saveChatMealEdit(context) }) { Text("Save grams") }
-            }
-            if (vm.chatEventIds.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val allUndone = vm.chatEventIds.all { it.second in vm.chatUndone }
-                    if (allUndone) {
-                        Text("Undone", style = MaterialTheme.typography.bodySmall)
-                    } else {
-                        TextButton(onClick = { vm.editChatResult(context) }) { Text("Edit") }
-                        vm.chatEventIds.forEach { (_, eventId) ->
-                            if (eventId !in vm.chatUndone) {
-                                TextButton(onClick = { vm.undoChatEvent(context, eventId) }) {
-                                    Text("Undo")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}

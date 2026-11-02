@@ -4,19 +4,30 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
+import com.blake.app.ui.theme.BlakeIcons
 import com.blake.app.ui.theme.BlakeTheme
+import com.blake.app.ui.theme.blake
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -28,7 +39,7 @@ class MainActivity : ComponentActivity() {
             BlakeTheme {
                 // Scaffold owns inset handling (via bottomBar/innerPadding) for edge-to-edge,
                 // so the root Surface doesn't need its own windowInsetsPadding.
-                Surface(modifier = Modifier.fillMaxSize()) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     BlakeApp()
                 }
             }
@@ -46,15 +57,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private data class NavDestination(val route: String, val label: String, val glyph: String)
+private data class NavDestination(val route: String, val label: String, val icon: ImageVector)
 
-// Plain text glyphs instead of a vector icon library for now — real icons can follow once
-// the nav shell itself is confirmed stable.
-private val DESTINATIONS = listOf(
-    NavDestination("today", "Today", "⌂"),
-    NavDestination("workout", "Workout", "🏋️"),
-    NavDestination("timeline", "Timeline", "☰"),
-    NavDestination("insights", "Insights", "ⓘ"),
+private val LEFT_TABS = listOf(
+    NavDestination("today", "Today", BlakeIcons.Today),
+    NavDestination("timeline", "Timeline", BlakeIcons.Timeline),
+)
+private val RIGHT_TABS = listOf(
+    NavDestination("insights", "Insights", BlakeIcons.Insights),
+    NavDestination("settings", "Settings", BlakeIcons.Settings),
 )
 
 private fun NavHostController.navigateSingleTopTo(route: String) = navigate(route) {
@@ -63,49 +74,100 @@ private fun NavHostController.navigateSingleTopTo(route: String) = navigate(rout
     restoreState = true
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NavTab(dest: NavDestination, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val tint = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        modifier = modifier
+            .heightIn(min = 52.dp)
+            .clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+    ) {
+        Box(
+            Modifier
+                .size(4.dp)
+                .clip(CircleShape)
+                .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+        )
+        Icon(dest.icon, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
+        Text(
+            dest.label.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            color = tint,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** Flat bar: Today, Timeline, a round "+" that opens Log anything, Insights, Settings. */
+@Composable
+private fun BlakeNavBar(currentRoute: String?, onNavigate: (String) -> Unit, onLog: () -> Unit) {
+    Column(Modifier.background(MaterialTheme.colorScheme.background)) {
+        HorizontalDivider(color = MaterialTheme.blake.divider)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LEFT_TABS.forEach { NavTab(it, currentRoute == it.route, { onNavigate(it.route) }, Modifier.weight(1f)) }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary)
+                        .clickable(onClick = onLog),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        BlakeIcons.Plus,
+                        contentDescription = "Log anything",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(26.dp),
+                    )
+                }
+            }
+            RIGHT_TABS.forEach { NavTab(it, currentRoute == it.route, { onNavigate(it.route) }, Modifier.weight(1f)) }
+        }
+    }
+}
+
 @Composable
 fun BlakeApp() {
     val navController = rememberNavController()
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    // Activity-scoped so the Log sheet and the Today screen share one chat state.
+    val todayVm: TodayViewModel = viewModel()
+    var showLog by remember { mutableStateOf(false) }
 
-    val isFullScreenRoute = currentRoute == "session"
+    // The session is full screen with its own close button.
+    val hideBar = currentRoute == "session"
 
     Scaffold(
-        topBar = {
-            if (!isFullScreenRoute) {
-                TopAppBar(
-                    title = { Text("Blake") },
-                    actions = {
-                        IconButton(onClick = { navController.navigate("settings") }) {
-                            Text("⚙", style = MaterialTheme.typography.titleLarge)
-                        }
-                    },
-                )
-            }
-        },
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            if (!isFullScreenRoute) {
-                NavigationBar {
-                    DESTINATIONS.forEach { dest ->
-                        NavigationBarItem(
-                            selected = currentRoute == dest.route,
-                            onClick = { navController.navigateSingleTopTo(dest.route) },
-                            icon = { Text(dest.glyph, style = MaterialTheme.typography.titleMedium) },
-                            label = { Text(dest.label) },
-                        )
-                    }
-                }
+            if (!hideBar) {
+                BlakeNavBar(
+                    currentRoute = currentRoute,
+                    onNavigate = { navController.navigateSingleTopTo(it) },
+                    onLog = { showLog = true },
+                )
             }
         },
     ) { innerPadding ->
         NavHost(
             navController = navController,
             startDestination = "today",
-            modifier = Modifier.padding(if (isFullScreenRoute) PaddingValues(0.dp) else innerPadding),
+            modifier = Modifier.padding(if (hideBar) PaddingValues(0.dp) else innerPadding),
         ) {
             composable("today") {
-                TodayScreen(onNavigateToWorkout = { navController.navigateSingleTopTo("workout") })
+                TodayScreen(
+                    onNavigateToWorkout = { navController.navigate("workout") },
+                    vm = todayVm,
+                )
             }
             composable("workout") {
                 WorkoutScreen(onStartSession = { exercises ->
@@ -128,5 +190,9 @@ fun BlakeApp() {
                 UnmatchedScreen(onBack = { navController.popBackStack() })
             }
         }
+    }
+
+    if (showLog) {
+        LogSheet(vm = todayVm, onDismiss = { showLog = false })
     }
 }
