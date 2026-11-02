@@ -194,6 +194,53 @@ def log_set_direct(req: LogSetRequest):
     return registry.call("workouts__log_set", req.model_dump(), db)
 
 
+class CreateHabitRequest(BaseModel):
+    name: str
+    kind: str = "yesno"
+    target: float | None = None
+    unit: str | None = None
+
+
+@app.post("/habits", dependencies=[Depends(require_api_key)])
+def create_habit_direct(req: CreateHabitRequest):
+    return registry.call("habits__create_habit", req.model_dump(exclude_none=True), db)
+
+
+class LogHabitRequest(BaseModel):
+    name: str
+    value: float = 1.0
+    date: str | None = None
+    client_id: str | None = None
+
+
+@app.post("/log/habit", dependencies=[Depends(require_api_key)])
+def log_habit_direct(req: LogHabitRequest):
+    return registry.call("habits__log_habit", req.model_dump(exclude_none=True), db)
+
+
+class LogWeightRequest(BaseModel):
+    kg: float
+    date: str | None = None
+    client_id: str | None = None
+
+
+@app.post("/log/weight", dependencies=[Depends(require_api_key)])
+def log_weight_direct(req: LogWeightRequest):
+    return registry.call("body__log_weight", req.model_dump(exclude_none=True), db)
+
+
+class LogSleepRequest(BaseModel):
+    hours: float
+    quality: int | None = None
+    date: str | None = None
+    client_id: str | None = None
+
+
+@app.post("/log/sleep", dependencies=[Depends(require_api_key)])
+def log_sleep_direct(req: LogSleepRequest):
+    return registry.call("sleep__log_sleep", req.model_dump(exclude_none=True), db)
+
+
 class LogWarmupRequest(BaseModel):
     seconds: float
     name: str | None = None  # which move, so the Timeline can list them

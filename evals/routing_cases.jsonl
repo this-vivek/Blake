@@ -43,3 +43,19 @@
 {"text": "my poha is 200g poha, 1 egg, and 50g peanuts, remember that", "expect": ["meals__define_recipe"]}
 {"text": "define a recipe called my shake: 30g whey protein and 200ml milk", "expect": ["meals__define_recipe"]}
 {"text": "save this as 'office lunch': 150g rice, 150g dal, 100g paneer", "expect": ["meals__define_recipe"]}
+{"text": "drank 2 glasses of water", "expect": ["habits__log_habit"]}
+{"text": "had a glass of water", "expect": ["habits__log_habit"]}
+{"text": "I meditated this morning", "expect": ["habits__log_habit"]}
+{"text": "start tracking a new habit: read 20 pages a day", "expect": ["habits__create_habit"]}
+{"text": "how are my habits going?", "expect": ["habits__habit_status"]}
+{"text": "how many glasses of water have I had today", "expect": ["habits__habit_status"]}
+{"text": "I weigh 72.4 kg this morning", "expect": ["body__log_weight"]}
+{"text": "weighed in at 71.9", "expect": ["body__log_weight"]}
+{"text": "log my weight, 73 kg", "expect": ["body__log_weight"]}
+{"text": "is my weight going down?", "expect": ["body__weight_trend"]}
+{"text": "show my weight trend for the last month", "expect": ["body__weight_trend"]}
+{"text": "slept 7 hours", "expect": ["sleep__log_sleep"]}
+{"text": "I got 6.5 hours of sleep last night and it was pretty bad", "expect": ["sleep__log_sleep"]}
+{"text": "only 5 hours sleep, quality 2 out of 5", "expect": ["sleep__log_sleep"]}
+{"text": "slept 8 hours, felt great", "expect": ["sleep__log_sleep"]}
+{"text": "how has my sleep been this week?", "expect": ["sleep__sleep_summary"]}

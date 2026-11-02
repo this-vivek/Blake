@@ -68,6 +68,7 @@ All endpoints except `/health` need the `X-API-Key` header when `BLAKE_API_KEY` 
 | Workouts | `POST /log/set`, `GET /suggest/workout`, `GET /suggest/next_set`, `GET /program/today`, `POST /program/complete` |
 | Spend and tasks | `POST /log/expense` (amount, category, note, optional lat/lon/accuracy), `POST /tasks/{id}/complete` |
 | Insights | `GET /trends?metric=&days=` (kcal, protein, spend, workout_days, volume), `GET /insights?days=` (all trends plus streaks) |
+| Habits, weight, sleep | `POST /habits`, `POST /log/habit` (water is a built-in count habit), `POST /log/weight`, `POST /log/sleep`; their data is in `/today` and `/insights` |
 | Review | `GET /review/weekly` (last completed week; written on first request, then saved), `POST /review/weekly/refresh` (write it again) |
 | Goals | `GET /goals`, `PUT /goals` |
 | Corrections | `POST /events/{id}/void`, `POST /reset/day`, `POST /reset/logs` (both need `{"confirm": true}`) |

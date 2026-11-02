@@ -13,6 +13,9 @@ DAY_KINDS = {
     "workouts": ["set", "warmup", "program_day_done"],
     "expenses": ["expense"],
     "tasks": ["task_done"],
+    "habits": ["habit_log"],
+    "body": ["weight"],
+    "sleep": ["sleep"],
 }
 
 # Everything that is a log rather than a setting.
@@ -21,6 +24,9 @@ LOG_KINDS = {
     "workouts": ["set", "warmup", "program_day_done"],
     "expenses": ["expense"],
     "tasks": ["task", "task_done"],
+    "habits": ["habit_log"],
+    "body": ["weight"],
+    "sleep": ["sleep"],
     "chat": ["turn"],
     "insights": ["weekly_review"],  # derived from the logs above, so it goes with them
 }

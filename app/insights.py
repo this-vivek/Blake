@@ -19,6 +19,9 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.core import clock
+from modules import body as body_module
+from modules import habits as habits_module
+from modules import sleep as sleep_module
 from modules.workouts import muscle_groups_for
 
 METRICS = ["kcal", "protein", "spend", "workout_days", "volume"]
@@ -222,13 +225,59 @@ def streaks(db, registry, now: float | None = None, tz_name: str | None = None) 
     return out
 
 
+def habits_block(db, days: int, now: float, tz) -> list[dict]:
+    """Per habit: the value each day, how often it was done, and its streak."""
+    today = local_date(now, tz)
+    dates = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
+    out = []
+    for name, habit in sorted(habits_module.definitions(db).items()):
+        values = habits_module.daily_values(db, name)
+        first = min(values) if values else None
+        counted = [d for d in dates if first is not None and d >= first and d != today]
+        done = [d for d in counted if habits_module.is_done(habit, values.get(d, 0.0))]
+        out.append({
+            "name": name, "kind": habit["kind"], "target": habit.get("target"), "unit": habit.get("unit", ""),
+            "points": [{"date": d.isoformat(), "value": values.get(d, 0.0),
+                        "done": habits_module.is_done(habit, values.get(d, 0.0))} for d in dates],
+            "hit_days": len(done), "counted_days": len(counted),
+            "hit_pct": round(100 * len(done) / len(counted)) if counted else None,
+            "streak": habits_module.streak(habit, values, today),
+        })
+    return out
+
+
+def weight_block(db, days: int, now: float, tz) -> dict:
+    points = body_module.trend_points(db, days, today=local_date(now, tz))
+    out: dict = {"points": points}
+    if points:
+        out.update({"latest_kg": points[-1]["kg"], "avg7": points[-1]["avg7"],
+                    "change_kg": round(points[-1]["kg"] - points[0]["kg"], 1)})
+    return out
+
+
+def sleep_block(db, days: int, now: float, tz) -> dict:
+    points = sleep_module.points(db, days, today=local_date(now, tz))
+    out: dict = {"points": points, "nights": len(points)}
+    if points:
+        out["avg_hours"] = round(sum(p["hours"] for p in points) / len(points), 1)
+        rated = [p["quality"] for p in points if p["quality"]]
+        if rated:
+            out["avg_quality"] = round(sum(rated) / len(rated), 1)
+    return out
+
+
 def insights(db, registry, days: int = 14, now: float | None = None,
              tz_name: str | None = None) -> dict:
     """Everything the Insights tab shows, in one call."""
     if not 1 <= days <= MAX_DAYS:
         return {"error": f"days must be between 1 and {MAX_DAYS}"}
+    tz = _tz(tz_name)
+    at = clock.now() if now is None else now
     return {
         "days": days,
         "metrics": {m: trend(db, registry, m, days, now, tz_name) for m in METRICS},
         "streaks": streaks(db, registry, now, tz_name),
+        "habits": habits_block(db, days, at, tz),
+        "weight": weight_block(db, days, at, tz),
+        "sleep": sleep_block(db, days, at, tz),
     }

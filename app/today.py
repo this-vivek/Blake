@@ -30,6 +30,9 @@ def build_today(db, registry, now: float | None = None) -> dict:
     muscle_groups_today = muscle_groups_for({e["payload"]["exercise"] for e in sets_today})
 
     spend_today = registry.call("expenses__daily_summary", {}, db)["today"]
+    habits_today = registry.call("habits__habit_status", {}, db)["habits"]
+    weight_today = registry.call("body__daily_summary", {}, db)["today"]
+    sleep_today = registry.call("sleep__daily_summary", {}, db)["today"]
     goals = registry.call("goals__get_goals", {}, db)
     open_tasks = registry.call("tasks__list_tasks", {}, db)["open_tasks"]
 
@@ -78,6 +81,9 @@ def build_today(db, registry, now: float | None = None) -> dict:
             ),
         },
         "spend": {"actual": spend_today["total"], "goal": goals.get("daily_spend")},
+        "habits": habits_today,
+        "weight": weight_today,
+        "sleep": sleep_today,
         "open_tasks": open_tasks,
         "nudges": nudges[:MAX_NUDGES],
     }
