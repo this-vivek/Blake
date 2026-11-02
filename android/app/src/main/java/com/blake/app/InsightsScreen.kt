@@ -57,6 +57,48 @@ class InsightsViewModel : ViewModel() {
     var loading by mutableStateOf(false)
     var error by mutableStateOf("")
 
+    // Weekly review: written by the server on the first request after the week closes.
+    var reviewSummary by mutableStateOf("")
+    var reviewFocus by mutableStateOf<List<String>>(emptyList())
+    var reviewEmptyMessage by mutableStateOf("")
+    var reviewLoading by mutableStateOf(false)
+    var reviewError by mutableStateOf("")
+
+    fun loadReview(context: Context) {
+        val prefs = context.getSharedPreferences(Prefs.NAME, Context.MODE_PRIVATE)
+        prefs.getString("weekly_review_cache", null)?.let { applyReview(it) }
+        reviewLoading = reviewSummary.isEmpty() && reviewEmptyMessage.isEmpty()
+        reviewError = ""
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.weeklyReview() }
+            reviewLoading = false
+            result.fold(
+                onSuccess = { json ->
+                    if (applyReview(json)) prefs.edit().putString("weekly_review_cache", json).apply()
+                },
+                onFailure = { if (reviewSummary.isEmpty()) reviewError = "Couldn't load the weekly review: ${it.message}" },
+            )
+        }
+    }
+
+    private fun applyReview(json: String): Boolean = try {
+        val o = JSONObject(json)
+        if (o.optBoolean("empty")) {
+            reviewSummary = ""
+            reviewFocus = emptyList()
+            reviewEmptyMessage = o.optString("message", "Nothing was logged last week.")
+        } else {
+            reviewSummary = o.getString("summary")
+            val f = o.optJSONArray("focus")
+            reviewFocus = if (f == null) emptyList() else (0 until f.length()).map { f.getString(it) }
+            reviewEmptyMessage = ""
+        }
+        true
+    } catch (e: Exception) {
+        false
+    }
+
     private fun cacheKey(d: Int) = "insights_cache_$d"
 
     /** Cache-first: show the last copy for this range immediately, then refresh it. */
@@ -128,7 +170,10 @@ class InsightsViewModel : ViewModel() {
 @Composable
 fun InsightsScreen(vm: InsightsViewModel = viewModel()) {
     val context = LocalContext.current
-    LaunchedEffect(Unit) { vm.load(context) }
+    LaunchedEffect(Unit) {
+        vm.load(context)
+        vm.loadReview(context)
+    }
     val data = vm.view()
 
     Column(
@@ -150,6 +195,7 @@ fun InsightsScreen(vm: InsightsViewModel = viewModel()) {
             Text(vm.error, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
         }
         if (data == null) {
+            ReviewCard(vm)
             if (vm.loading) {
                 Text("Loading...", style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -157,6 +203,7 @@ fun InsightsScreen(vm: InsightsViewModel = viewModel()) {
             return@Column
         }
 
+        ReviewCard(vm)
         StreaksCard(data)
 
         data.metrics["kcal"]?.let {
@@ -170,6 +217,38 @@ fun InsightsScreen(vm: InsightsViewModel = viewModel()) {
         }
         data.metrics["workout_days"]?.let { TrainingDaysCard(it, data.training) }
         data.metrics["volume"]?.let { if (it.byGroup.isNotEmpty()) VolumeCard(it) }
+    }
+}
+
+@Composable
+private fun ReviewCard(vm: InsightsViewModel) {
+    BlakeCard {
+        SectionLabel("Last week")
+        when {
+            vm.reviewSummary.isNotEmpty() -> {
+                Text(vm.reviewSummary, style = MaterialTheme.typography.bodyLarge)
+                if (vm.reviewFocus.isNotEmpty()) {
+                    SectionLabel("Focus for this week")
+                    vm.reviewFocus.forEach { item ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                            Text("\u2022", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                            Text(item, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+            vm.reviewEmptyMessage.isNotEmpty() -> Text(
+                vm.reviewEmptyMessage, style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            vm.reviewLoading -> Text(
+                "Writing your review...", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            vm.reviewError.isNotEmpty() -> Text(
+                vm.reviewError, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error,
+            )
+        }
     }
 }
 

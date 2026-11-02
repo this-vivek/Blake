@@ -57,6 +57,9 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
     /** Trends and streaks for the Insights tab. */
     fun insights(days: Int): Result<String> = get("$baseUrl/insights?days=$days")
 
+    /** Last completed week's review (written on the first request, then returned as saved). */
+    fun weeklyReview(): Result<String> = get("$baseUrl/review/weekly")
+
     fun today(): Result<String> = get("$baseUrl/today")
 
     /** Fire-and-forget on app foreground — starts the free-tier host's cold boot while
