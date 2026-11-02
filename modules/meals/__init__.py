@@ -225,25 +225,73 @@ _NOISE_WORDS = {
 }
 
 
-def _match(name: str) -> tuple[str, tuple] | None:
+def _user_recipes(db) -> dict[str, tuple]:
+    """User-defined composite dishes (ROADMAP-NEXTGEN.md P5's "my poha"), newest definition
+    per name wins. Kept separate from FOODS so the static dataset never needs a db handle."""
+    recipes: dict[str, tuple] = {}
+    for e in db.query_active("meals", "recipe", limit=10**6):  # newest first
+        recipes.setdefault(e["payload"]["name"], tuple(e["payload"]["per100"]))
+    return recipes
+
+
+def _match(name: str, db=None) -> tuple[str, tuple] | None:
     """Exact match first, then match a known food as a whole word within the input.
 
     Parenthetical asides (e.g. "poha (rice flakes with onion, peanuts)") are stripped before
     matching — they describe ingredients of the dish, not the dish itself, and matching on
     them causes false positives (e.g. matching "onion" instead of the actual dish "poha").
+
+    db is optional (None when matching inside a recipe's own ingredient list, to keep
+    recipes-of-recipes out of scope for v1) — when given, the user's own recipes are
+    searched too and can override a static FOODS entry of the same name.
     """
-    if name in FOODS:
-        return name, FOODS[name]
+    foods = {**FOODS, **_user_recipes(db)} if db is not None else FOODS
+    if name in foods:
+        return name, foods[name]
     primary = re.sub(r"\([^)]*\)", " ", name)
     words = {w for w in primary.replace(",", " ").split() if w not in _NOISE_WORDS}
-    candidates = [k for k in FOODS if set(k.split()) <= words]
+    candidates = [k for k in foods if set(k.split()) <= words]
     if candidates:
         # Most words matched wins first (a composite dish name beats a single ingredient
         # word it happens to contain, e.g. "egg curry" over "tomato" in "egg curry with
         # onion and tomato"), character length only breaks ties within the same word count.
         best = max(candidates, key=lambda k: (len(k.split()), len(k)))
-        return best, FOODS[best]
+        return best, foods[best]
     return None
+
+
+def define_recipe(args: dict, db) -> dict:
+    """Computes a composite dish's per-100g values from its ingredients (code, never a
+    model guess) and stores it so future log_meal calls can match the dish by name."""
+    name = str(args.get("name", "")).strip().lower()
+    ingredients_in = args.get("ingredients")
+    if not name or not isinstance(ingredients_in, list) or not ingredients_in:
+        return {"error": "need name and a non-empty ingredients list"}
+
+    totals = {"kcal": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
+    total_grams = 0.0
+    unknown = []
+    for ing in ingredients_in:
+        ing_name = str(ing.get("name", "")).strip().lower()
+        matched = _match(ing_name) if ing_name else None  # static FOODS only, no recipe nesting
+        grams = _grams_for(matched[0], ing) if matched else None
+        if not matched or grams is None or grams <= 0:
+            unknown.append(ing_name or "?")
+            continue
+        _, per100 = matched
+        total_grams += grams
+        for i, key in enumerate(("kcal", "protein", "carbs", "fat")):
+            totals[key] += per100[i] * grams / 100
+    if unknown:
+        return {"error": f"unknown ingredients: {', '.join(unknown)}"}
+    if total_grams <= 0:
+        return {"error": "ingredients must have positive grams"}
+
+    per100 = [round(totals[k] * 100 / total_grams, 1) for k in ("kcal", "protein", "carbs", "fat")]
+    event_id = db.append("meals", "recipe", {"name": name, "per100": per100, "ingredients": ingredients_in})
+    return {"name": name, "per100": {
+        "kcal": per100[0], "protein": per100[1], "carbs": per100[2], "fat": per100[3]},
+        "event_id": event_id}
 
 
 def log_meal(args: dict, db) -> dict:
@@ -262,7 +310,7 @@ def log_meal(args: dict, db) -> dict:
     total = {"kcal": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
     for it in items_in:
         raw_name = str(it.get("name", "")).strip().lower()
-        matched = _match(raw_name) if raw_name else None
+        matched = _match(raw_name, db) if raw_name else None
         # Unit conversion depends on the matched food (a "piece" means different things for
         # roti vs. banana), so it happens after matching, against the canonical name.
         grams = _grams_for(matched[0], it) if matched else None
@@ -422,13 +470,15 @@ def usual_log_hour(meal: str, db) -> float | None:
 
 def protein_gap_foods(db, limit: int = 3) -> list[str]:
     """2-3 of the user's own previously-eaten foods, ranked by protein density, to suggest
-    for closing a protein shortfall — grounded in the food table and their own history,
-    never guessed by the model (ROADMAP-NEXTGEN.md P3)."""
+    for closing a protein shortfall — grounded in the food table (including the user's own
+    recipes, P5) and their own history, never guessed by the model (ROADMAP-NEXTGEN.md P3)."""
+    all_foods = {**FOODS, **_user_recipes(db)}
     eaten = {
         item["name"] for e in db.query_active("meals", "meal", limit=10**6)
         for item in e["payload"]["items"]
     }
-    ranked = sorted(eaten, key=lambda n: (-FOODS[n][1], n))
+    eaten &= all_foods.keys()  # a food/recipe name logged in the past may no longer resolve
+    ranked = sorted(eaten, key=lambda n: (-all_foods[n][1], n))
     return ranked[:limit]
 
 
@@ -441,7 +491,9 @@ module = Module(
         "converts units to grams using a household-units table. Only give grams directly if "
         "the user stated an exact weight. Call meals__log_meal with items; macros are "
         "computed by the tool. Items the tool reports as unknown must be mentioned to the "
-        "user."
+        "user. If the user describes a dish by its ingredients (e.g. 'my poha is 200g poha, "
+        "1 egg, 50g peanuts') and names it, call define_recipe once so future mentions of "
+        "that name match it directly."
     ),
     tools=[
         Tool(
@@ -470,6 +522,22 @@ module = Module(
             {"type": "object", "required": ["meal"], "properties": {
                 "meal": {"type": "string", "enum": ["breakfast", "lunch", "dinner", "snack"]}}},
             suggest_meal,
+        ),
+        Tool(
+            "define_recipe",
+            "Define a named composite dish from its ingredients; macros are computed from "
+            "the ingredient table, not guessed. Future log_meal calls can then use this name.",
+            {"type": "object", "required": ["name", "ingredients"], "properties": {
+                "name": {"type": "string"},
+                "ingredients": {"type": "array", "items": {"type": "object",
+                                 "required": ["name"], "properties": {
+                                     "name": {"type": "string"},
+                                     "grams": {"type": "number"},
+                                     "qty": {"type": "number"},
+                                     "unit": {"type": "string"},
+                                 }}},
+            }},
+            define_recipe,
         ),
     ],
 )

@@ -40,3 +40,6 @@
 {"text": "one bowl of curd after dinner", "expect": ["meals__log_meal"]}
 {"text": "egg curry with onion and tomato for dinner", "expect": ["meals__log_meal"]}
 {"text": "had paneer butter masala and naan for lunch", "expect": ["meals__log_meal"]}
+{"text": "my poha is 200g poha, 1 egg, and 50g peanuts, remember that", "expect": ["meals__define_recipe"]}
+{"text": "define a recipe called my shake: 30g whey protein and 200ml milk", "expect": ["meals__define_recipe"]}
+{"text": "save this as 'office lunch': 150g rice, 150g dal, 100g paneer", "expect": ["meals__define_recipe"]}

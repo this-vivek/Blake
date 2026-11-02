@@ -5,6 +5,7 @@ import pytest
 from app.core.db import Db
 from app.core.registry import Registry
 from app.core.router import run_turn
+from modules.meals import protein_gap_foods
 from modules.workouts import complete_program_day, today_program_day
 
 
@@ -36,6 +37,51 @@ def test_meal_macros_from_lookup_not_model(reg, db):
     out = reg.call("meals__log_meal", {"items": [{"name": "egg", "grams": 100}]}, db)
     assert out["total"]["kcal"] == 143.0
     assert reg.call("meals__daily_summary", {}, db)["today"]["kcal"] == 143.0
+
+
+def test_define_recipe_computes_per100_from_ingredients(reg, db):
+    out = reg.call("meals__define_recipe", {
+        "name": "my poha",
+        "ingredients": [{"name": "poha", "grams": 200}, {"name": "egg", "grams": 100}],
+    }, db)
+    # poha 200g: kcal 260, protein 5.4, carbs 48, fat 6; egg 100g: kcal 143, protein 12.6,
+    # carbs 0.7, fat 9.5 -> combined / 300g * 100
+    assert out["per100"]["kcal"] == round((260 + 143) / 300 * 100, 1)
+
+
+def test_define_recipe_rejects_unknown_ingredient(reg, db):
+    out = reg.call("meals__define_recipe", {
+        "name": "my dish", "ingredients": [{"name": "dragonfruit", "grams": 100}],
+    }, db)
+    assert "error" in out
+
+
+def test_log_meal_matches_user_defined_recipe_by_name(reg, db):
+    recipe = reg.call("meals__define_recipe", {
+        "name": "my poha", "ingredients": [{"name": "poha", "grams": 200}, {"name": "egg", "grams": 100}],
+    }, db)
+    out = reg.call("meals__log_meal", {"items": [{"name": "my poha", "grams": 300}]}, db)
+    assert out["logged"][0]["name"] == "my poha"
+    assert out["logged"][0]["kcal"] == round(recipe["per100"]["kcal"] * 3, 1)
+
+
+def test_log_meal_recipe_overrides_static_food_of_same_name(reg, db):
+    reg.call("meals__define_recipe", {
+        "name": "poha", "ingredients": [{"name": "poha", "grams": 100}, {"name": "peanut", "grams": 50}],
+    }, db)
+    out = reg.call("meals__log_meal", {"items": [{"name": "poha", "grams": 150}]}, db)
+    # the custom "poha" recipe (poha+peanut) should win over the static plain-poha entry
+    static_poha_kcal_per100 = 130
+    assert out["logged"][0]["kcal"] != round(static_poha_kcal_per100 * 1.5, 1)
+
+
+def test_protein_gap_foods_includes_custom_recipes(reg, db):
+    reg.call("meals__define_recipe", {
+        "name": "protein shake", "ingredients": [{"name": "whey protein", "grams": 30}, {"name": "milk", "grams": 200}],
+    }, db)
+    reg.call("meals__log_meal", {"meal": "snack", "items": [{"name": "protein shake", "grams": 230}]}, db)
+    foods = protein_gap_foods(db)
+    assert "protein shake" in foods
 
 
 def test_meal_matching_prefers_dish_name_over_ingredient_word(reg, db):
