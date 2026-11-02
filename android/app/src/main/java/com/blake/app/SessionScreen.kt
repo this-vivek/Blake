@@ -256,7 +256,10 @@ private fun clock(ms: Long): String {
 @Composable
 fun SessionScreen(onFinish: () -> Unit, vm: SessionViewModel = viewModel()) {
     val context = LocalContext.current
-    LaunchedEffect(Unit) { vm.init(WorkoutSessionStore.pendingExercises) }
+    // Must happen before the first read of vm.currentExercise below. A LaunchedEffect runs
+    // after composition, so the first frame saw an empty list and closed the screen at once
+    // (this was the original "Start session does nothing" bug). init() is idempotent.
+    remember { vm.init(WorkoutSessionStore.pendingExercises) }
     LaunchedEffect(vm.currentIndex) { vm.loadSuggestion(context) }
 
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
