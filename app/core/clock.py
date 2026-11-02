@@ -21,3 +21,11 @@ def day_start(at: float | None = None, tz_name: str | None = None) -> float:
     local = datetime.fromtimestamp(at, tz)
     start_local = local.replace(hour=0, minute=0, second=0, microsecond=0)
     return start_local.timestamp()
+
+
+def local_hour(at: float, tz_name: str | None = None) -> float:
+    """Fractional local hour of day (e.g. 13.5 for 1:30 PM) — used to compare "now" against
+    a slot's usual log time for the Today screen's nudges (ROADMAP-NEXTGEN.md P3)."""
+    tz = ZoneInfo(tz_name or DEFAULT_TZ)
+    local = datetime.fromtimestamp(at, tz)
+    return local.hour + local.minute / 60

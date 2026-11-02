@@ -4,15 +4,18 @@ Lives outside app/core/ (not a contract file) and outside modules/ (it reads acr
 rather than owning its own event kind) — a thin read-only aggregation layer.
 """
 from app.core import clock
-from modules.meals import usual_combo
+from modules.meals import protein_gap_foods, usual_combo, usual_log_hour
 from modules.workouts import muscle_groups_for, prs_in
 
 MAX_NUDGES = 2  # ROADMAP-NEXTGEN.md P3: "at most 2 nudges"
 MEAL_SLOTS = ["breakfast", "lunch", "dinner", "snack"]
+EVENING_HOUR = 18.0  # "Protein is short in the evening" (ROADMAP-NEXTGEN.md P3)
 
 
 def build_today(db, registry, now: float | None = None) -> dict:
-    since = clock.day_start(at=now)
+    at = now if now is not None else clock.now()
+    since = clock.day_start(at=at)
+    current_hour = clock.local_hour(at)
 
     meals_today = registry.call("meals__daily_summary", {}, db)["today"]
     meal_events = db.query_active("meals", "meal", since=since)
@@ -31,15 +34,22 @@ def build_today(db, registry, now: float | None = None) -> dict:
 
     nudges = []
     protein_goal = goals.get("protein_g")
-    if protein_goal is not None and meals_today["protein"] < protein_goal:
+    if (protein_goal is not None and meals_today["protein"] < protein_goal
+            and current_hour >= EVENING_HOUR):
         short = protein_goal - meals_today["protein"]
-        nudges.append(f"{short:.0f}g protein short today")
+        foods = protein_gap_foods(db)
+        suffix = f" — try {', '.join(foods)}" if foods else ""
+        nudges.append(f"{short:.0f}g protein short today{suffix}")
     spend_goal = goals.get("daily_spend")
     if spend_goal is not None and spend_today["total"] > spend_goal:
         over = spend_today["total"] - spend_goal
         nudges.append(f"over your daily spend budget by {over:.0f}")
-    if not meal_slots_logged:
-        nudges.append("no meals logged yet today")
+    for slot in MEAL_SLOTS:
+        if slot in meal_slots_logged:
+            continue
+        usual_hour = usual_log_hour(slot, db)
+        if usual_hour is not None and current_hour >= usual_hour:
+            nudges.append(f"{slot} usually logged by now — still unlogged")
 
     return {
         "nutrition": {

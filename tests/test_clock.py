@@ -25,3 +25,8 @@ def test_log_from_previous_evening_does_not_count_toward_next_day():
     logged_at = datetime.datetime(2024, 3, 14, 21, 0, tzinfo=IST).timestamp()
     now_at = datetime.datetime(2024, 3, 15, 0, 32, tzinfo=IST).timestamp()
     assert logged_at < clock.day_start(at=now_at)
+
+
+def test_local_hour_is_fractional():
+    at = datetime.datetime(2024, 3, 15, 13, 30, tzinfo=IST).timestamp()
+    assert clock.local_hour(at, tz_name="Asia/Kolkata") == 13.5

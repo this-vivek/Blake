@@ -310,6 +310,35 @@ def usual_combo(meal: str, db) -> dict:
             "times_logged": counts[best]}
 
 
+def usual_log_hour(meal: str, db) -> float | None:
+    """Median local hour this slot has been logged at, over the last 30 days — lets the
+    Today screen nudge "breakfast usually logged by now" instead of nagging at a fixed,
+    one-size-fits-all time. None if the slot has no history yet to compare against."""
+    since = time.time() - USUAL_LOOKBACK_DAYS * 24 * 3600
+    hours = sorted(
+        clock.local_hour(e["ts"]) for e in db.query_active("meals", "meal", since=since)
+        if e["payload"].get("meal") == meal
+    )
+    if not hours:
+        return None
+    mid = len(hours) // 2
+    if len(hours) % 2:
+        return hours[mid]
+    return (hours[mid - 1] + hours[mid]) / 2
+
+
+def protein_gap_foods(db, limit: int = 3) -> list[str]:
+    """2-3 of the user's own previously-eaten foods, ranked by protein density, to suggest
+    for closing a protein shortfall — grounded in the food table and their own history,
+    never guessed by the model (ROADMAP-NEXTGEN.md P3)."""
+    eaten = {
+        item["name"] for e in db.query_active("meals", "meal", limit=10**6)
+        for item in e["payload"]["items"]
+    }
+    ranked = sorted(eaten, key=lambda n: (-FOODS[n][1], n))
+    return ranked[:limit]
+
+
 module = Module(
     name="meals",
     version="0.1.0",

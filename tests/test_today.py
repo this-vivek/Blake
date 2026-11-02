@@ -96,6 +96,40 @@ def test_today_no_goals_set_has_no_nudge_crash(reg, db):
     assert isinstance(out["nudges"], list)
 
 
+def test_today_protein_nudge_only_shows_in_evening(reg, db):
+    reg.call("goals__set_goal", {"protein_g": 150}, db)
+    reg.call("meals__log_meal", {"meal": "breakfast", "items": [{"name": "egg", "grams": 100}]}, db)
+
+    morning = datetime.datetime(2024, 3, 15, 9, 0, tzinfo=IST).timestamp()
+    evening = datetime.datetime(2024, 3, 15, 19, 0, tzinfo=IST).timestamp()
+
+    out_morning = build_today(db, reg, now=morning)
+    assert not any("protein" in n for n in out_morning["nudges"])
+
+    out_evening = build_today(db, reg, now=evening)
+    assert any("protein" in n and "try" in n for n in out_evening["nudges"])
+
+
+def test_today_nudge_when_slot_unlogged_past_usual_time(reg, db):
+    usual_breakfast = (datetime.datetime.now(IST) - datetime.timedelta(days=2)).replace(
+        hour=8, minute=0, second=0, microsecond=0
+    )
+    db.append("meals", "meal", {
+        "meal": "breakfast",
+        "items": [{"name": "egg", "grams": 100, "kcal": 143.0, "protein": 12.6, "carbs": 0.7, "fat": 9.5}],
+        "total": {"kcal": 143.0, "protein": 12.6, "carbs": 0.7, "fat": 9.5},
+    }, ts=usual_breakfast.timestamp())
+
+    before_usual = datetime.datetime.now(IST).replace(hour=7, minute=0, second=0, microsecond=0)
+    after_usual = datetime.datetime.now(IST).replace(hour=10, minute=0, second=0, microsecond=0)
+
+    out_before = build_today(db, reg, now=before_usual.timestamp())
+    assert not any("breakfast" in n for n in out_before["nudges"])
+
+    out_after = build_today(db, reg, now=after_usual.timestamp())
+    assert any("breakfast" in n and "unlogged" in n for n in out_after["nudges"])
+
+
 def test_kcal_burned_today_survives_partial_session(reg, db):
     # Simulates the app being closed mid-session: only 2 of a planned 4 sets got logged.
     # Each set is logged immediately (not batched at "finish session"), so the total already
