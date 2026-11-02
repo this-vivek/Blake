@@ -51,7 +51,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
 
     /** /chat is multipart (text + optional image), not the JSON rawRequest() sends, so its
      * queued body (built by OutboxRepository.enqueueChat) base64-embeds the image instead. */
-    private fun sendChat(api: BlakeApi, item: OutboxEntity): Result<String> {
+    private fun sendChat(api: BlakeApi, item: OutboxEntity): kotlin.Result<String> {
         val body = JSONObject(item.bodyJson)
         val imageBytes = if (body.has("image_base64")) {
             Base64.decode(body.getString("image_base64"), Base64.NO_WRAP)
