@@ -5,7 +5,7 @@ import pytest
 from app.core.db import Db
 from app.core.registry import Registry
 from app.core.router import run_turn
-from modules.meals import protein_gap_foods
+from modules.meals import add_custom_food, list_unmatched, protein_gap_foods, resolve_unmatched
 from modules.workouts import complete_program_day, today_program_day
 
 
@@ -37,6 +37,47 @@ def test_meal_macros_from_lookup_not_model(reg, db):
     out = reg.call("meals__log_meal", {"items": [{"name": "egg", "grams": 100}]}, db)
     assert out["total"]["kcal"] == 143.0
     assert reg.call("meals__daily_summary", {}, db)["today"]["kcal"] == 143.0
+
+
+def test_unmatched_item_appears_in_unmatched_queue(reg, db):
+    reg.call("meals__log_meal", {"items": [{"name": "dragonfruit", "grams": 150}]}, db)
+    out = list_unmatched(db)
+    assert out["items"][0]["name"] == "dragonfruit"
+    assert out["items"][0]["grams"] == 150.0
+
+
+def test_add_custom_food_then_log_meal_matches_it(reg, db):
+    add_custom_food({"name": "dragonfruit", "per100": {"kcal": 60, "protein": 1.2, "carbs": 13, "fat": 0.4}}, db)
+    out = reg.call("meals__log_meal", {"items": [{"name": "dragonfruit", "grams": 100}]}, db)
+    assert out["logged"][0]["kcal"] == 60.0
+
+
+def test_add_custom_food_rejects_incomplete_per100(reg, db):
+    assert "error" in add_custom_food({"name": "x", "per100": {"kcal": 60}}, db)
+
+
+def test_resolve_unmatched_maps_to_existing_food_and_voids_queue_item(reg, db):
+    reg.call("meals__log_meal", {"meal": "snack", "items": [{"name": "dragonfruit", "grams": 150}]}, db)
+    unmatched_id = list_unmatched(db)["items"][0]["id"]
+
+    out = resolve_unmatched({"unmatched_id": unmatched_id, "mapped_name": "mango"}, reg, db)
+    assert out["resolved"] is True
+    assert out["logged"][0]["name"] == "mango"
+    assert list_unmatched(db)["items"] == []  # voided, no longer queued
+
+
+def test_resolve_unmatched_rejects_unknown_unmatched_id(reg, db):
+    assert "error" in resolve_unmatched({"unmatched_id": 999999, "mapped_name": "mango"}, reg, db)
+
+
+def test_resolve_unmatched_still_unknown_mapping_does_not_void(reg, db):
+    reg.call("meals__log_meal", {"items": [{"name": "dragonfruit", "grams": 150}]}, db)
+    unmatched_id = list_unmatched(db)["items"][0]["id"]
+
+    out = resolve_unmatched({"unmatched_id": unmatched_id, "mapped_name": "also unknown"}, reg, db)
+    assert "error" in out
+    # the original item is still queued (not voided) since the mapping attempt failed
+    assert any(i["id"] == unmatched_id for i in list_unmatched(db)["items"])
 
 
 def test_define_recipe_computes_per100_from_ingredients(reg, db):

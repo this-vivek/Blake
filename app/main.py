@@ -10,6 +10,7 @@ from app.core.registry import Registry
 from app.core.router import run_turn
 from app.meal_refresh import refresh_meal_suggestion
 from app.today import build_today
+from modules.meals import add_custom_food, list_unmatched, resolve_unmatched
 from modules.workouts import complete_program_day, suggested_next, today_program_day
 
 app = FastAPI(title="Blake")
@@ -123,6 +124,34 @@ def log_meal_direct(req: LogMealRequest):
     args = {"meal": req.meal, "items": [i.model_dump() for i in req.items],
              "client_id": req.client_id}
     return registry.call("meals__log_meal", args, db)
+
+
+@app.get("/meals/unmatched", dependencies=[Depends(require_api_key)])
+def meals_unmatched():
+    return list_unmatched(db)
+
+
+class AddCustomFoodRequest(BaseModel):
+    name: str
+    per100: dict[str, float]
+
+
+@app.post("/meals/custom_food", dependencies=[Depends(require_api_key)])
+def meals_add_custom_food(req: AddCustomFoodRequest):
+    return add_custom_food(req.model_dump(), db)
+
+
+class ResolveUnmatchedRequest(BaseModel):
+    unmatched_id: int
+    mapped_name: str
+    grams: float | None = None
+    meal: str = "unspecified"
+
+
+@app.post("/meals/unmatched/resolve", dependencies=[Depends(require_api_key)])
+def meals_resolve_unmatched(req: ResolveUnmatchedRequest):
+    args = {k: v for k, v in req.model_dump().items() if v is not None}
+    return resolve_unmatched(args, registry, db)
 
 
 class LogSetRequest(BaseModel):

@@ -225,13 +225,19 @@ _NOISE_WORDS = {
 }
 
 
-def _user_recipes(db) -> dict[str, tuple]:
-    """User-defined composite dishes (ROADMAP-NEXTGEN.md P5's "my poha"), newest definition
-    per name wins. Kept separate from FOODS so the static dataset never needs a db handle."""
-    recipes: dict[str, tuple] = {}
-    for e in db.query_active("meals", "recipe", limit=10**6):  # newest first
-        recipes.setdefault(e["payload"]["name"], tuple(e["payload"]["per100"]))
-    return recipes
+def _user_foods(db) -> dict[str, tuple]:
+    """User-defined foods: recipes (computed per100, P5) and directly-approved custom foods
+    from the Unmatched screen (P5) — newest definition per name wins across both kinds.
+    Kept separate from FOODS so the static dataset never needs a db handle."""
+    events = sorted(
+        [*db.query_active("meals", "recipe", limit=10**6),
+         *db.query_active("meals", "custom_food", limit=10**6)],
+        key=lambda e: e["ts"], reverse=True,
+    )
+    foods: dict[str, tuple] = {}
+    for e in events:
+        foods.setdefault(e["payload"]["name"], tuple(e["payload"]["per100"]))
+    return foods
 
 
 def _match(name: str, db=None) -> tuple[str, tuple] | None:
@@ -245,7 +251,7 @@ def _match(name: str, db=None) -> tuple[str, tuple] | None:
     recipes-of-recipes out of scope for v1) — when given, the user's own recipes are
     searched too and can override a static FOODS entry of the same name.
     """
-    foods = {**FOODS, **_user_recipes(db)} if db is not None else FOODS
+    foods = {**FOODS, **_user_foods(db)} if db is not None else FOODS
     if name in foods:
         return name, foods[name]
     primary = re.sub(r"\([^)]*\)", " ", name)
@@ -344,6 +350,58 @@ def daily_summary(args: dict, db) -> dict:
         for k in tot:
             tot[k] += e["payload"]["total"][k]
     return {"today": {k: round(v, 1) for k, v in tot.items()}}
+
+
+def list_unmatched(db, limit: int = 50) -> dict:
+    """Queued items for the Unmatched screen (ROADMAP-NEXTGEN.md P5) — foods log_meal
+    couldn't match, waiting to be mapped to a real food or added as a new one."""
+    events = db.query_active("meals", "unmatched", limit=limit)
+    return {"items": [
+        {"id": e["id"], "name": e["payload"]["name"], "grams": e["payload"]["grams"], "ts": e["ts"]}
+        for e in events
+    ]}
+
+
+def add_custom_food(args: dict, db) -> dict:
+    """A new food with directly-approved per-100g macros — nothing here is a model guess;
+    this call itself is the approval step (ROADMAP-NEXTGEN.md P5's Unmatched screen: "Sonnet
+    may propose values, flagged proposed; nothing is stored until you approve it")."""
+    name = str(args.get("name", "")).strip().lower()
+    per100_in = args.get("per100")
+    if not name or not isinstance(per100_in, dict):
+        return {"error": "need name and per100 (kcal, protein, carbs, fat)"}
+    try:
+        per100 = [float(per100_in[k]) for k in ("kcal", "protein", "carbs", "fat")]
+    except (KeyError, TypeError, ValueError):
+        return {"error": "per100 needs kcal, protein, carbs, fat"}
+    event_id = db.append("meals", "custom_food", {"name": name, "per100": per100, "source": "user"})
+    return {"name": name, "per100": dict(zip(("kcal", "protein", "carbs", "fat"), per100)),
+            "event_id": event_id}
+
+
+def resolve_unmatched(args: dict, registry, db) -> dict:
+    """Resolves a queued unmatched item by mapping it to a real food name (existing or
+    newly added via add_custom_food) — re-logs it under that name with its original
+    quantity, then voids the unmatched entry so it drops off the queue."""
+    try:
+        unmatched_id = int(args["unmatched_id"])
+    except (KeyError, TypeError, ValueError):
+        return {"error": "unmatched_id is required"}
+    existing = db.get(unmatched_id)
+    if not existing or existing["module"] != "meals" or existing["kind"] != "unmatched":
+        return {"error": f"no unmatched item with id {unmatched_id}"}
+
+    mapped_name = str(args.get("mapped_name", "")).strip().lower()
+    if not mapped_name:
+        return {"error": "mapped_name is required"}
+    grams = args.get("grams", existing["payload"].get("grams", 0))
+    result = log_meal({"meal": args.get("meal", "unspecified"),
+                        "items": [{"name": mapped_name, "grams": grams}]}, db)
+    if result.get("unknown_items"):
+        return {"error": f"'{mapped_name}' still doesn't match a known food"}
+
+    registry.call("events__void_event", {"event_id": unmatched_id}, db)
+    return {"resolved": True, "logged": result["logged"], "total": result["total"]}
 
 
 # Curated combos per meal type, built from FOODS entries so macros stay real.
@@ -472,7 +530,7 @@ def protein_gap_foods(db, limit: int = 3) -> list[str]:
     """2-3 of the user's own previously-eaten foods, ranked by protein density, to suggest
     for closing a protein shortfall — grounded in the food table (including the user's own
     recipes, P5) and their own history, never guessed by the model (ROADMAP-NEXTGEN.md P3)."""
-    all_foods = {**FOODS, **_user_recipes(db)}
+    all_foods = {**FOODS, **_user_foods(db)}
     eaten = {
         item["name"] for e in db.query_active("meals", "meal", limit=10**6)
         for item in e["payload"]["items"]
