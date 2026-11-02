@@ -150,6 +150,11 @@ class TodayViewModel : ViewModel() {
     var chatEventIds by mutableStateOf<List<Pair<String, Int>>>(emptyList())
     var chatUndone by mutableStateOf<Set<Int>>(emptySet())
 
+    /** Tries the network directly first, for the normal case — this keeps chat's rich
+     * immediate result (summary text, per-entry Undo) rather than always deferring to the
+     * outbox. Only on failure (most commonly: offline) does it fall back to queueing, since
+     * an image can't travel through the outbox's instant-local-row pattern the way meal/set
+     * logging does — there's no structured payload to show until the server actually parses it. */
     fun sendChat(context: Context, imageBytes: ByteArray?, imageMimeType: String?) {
         if (chatInput.isBlank() && imageBytes == null) return
         chatLoading = true
@@ -172,7 +177,14 @@ class TodayViewModel : ViewModel() {
                     chatInput = ""
                     chatImageUri = null
                 },
-                onFailure = { chatResultText = "Error: ${it.message}" }
+                onFailure = {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        OutboxRepository.enqueueChat(context, text, imageBytes, imageMimeType)
+                    }
+                    chatResultText = "Offline — queued, will parse once reconnected"
+                    chatInput = ""
+                    chatImageUri = null
+                }
             )
         }
     }

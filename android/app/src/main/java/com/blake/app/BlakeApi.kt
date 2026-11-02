@@ -20,11 +20,16 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
 
     /** @param mimeType the image's real content type (e.g. from ContentResolver.getType) —
      * mislabeling a PNG/HEIC as "image/jpeg" gets the request rejected by Claude's API. Only
-     * image/jpeg, image/png, image/gif, image/webp are actually supported upstream. */
-    fun chat(text: String, imageBytes: ByteArray?, mimeType: String = "image/jpeg"): Result<String> {
+     * image/jpeg, image/png, image/gif, image/webp are actually supported upstream.
+     * @param clientId lets a retried send (e.g. from the offline outbox) be a no-op server-side
+     * instead of re-running Claude's tool calls and double-logging. */
+    fun chat(text: String, imageBytes: ByteArray?, mimeType: String = "image/jpeg", clientId: String? = null): Result<String> {
         return try {
             val bodyBuilder = MultipartBody.Builder().setType(MultipartBody.FORM)
                 .addFormDataPart("text", text)
+            if (clientId != null) {
+                bodyBuilder.addFormDataPart("client_id", clientId)
+            }
             if (imageBytes != null) {
                 bodyBuilder.addFormDataPart(
                     "image", "photo",

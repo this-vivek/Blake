@@ -1,6 +1,7 @@
 package com.blake.app.data
 
 import android.content.Context
+import android.util.Base64
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -10,6 +11,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.blake.app.BlakeApi
 import com.blake.app.Prefs
 import org.json.JSONArray
 import org.json.JSONObject
@@ -28,7 +30,9 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
 
         var anyFailed = false
         for (item in pending) {
-            val result = api.rawRequest(item.method, item.path, item.bodyJson)
+            val result = if (item.kind == "chat") sendChat(api, item) else {
+                api.rawRequest(item.method, item.path, item.bodyJson)
+            }
             result.fold(
                 onSuccess = { json ->
                     reconcile(db, item, json)
@@ -43,6 +47,21 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
             )
         }
         return if (anyFailed) Result.retry() else Result.success()
+    }
+
+    /** /chat is multipart (text + optional image), not the JSON rawRequest() sends, so its
+     * queued body (built by OutboxRepository.enqueueChat) base64-embeds the image instead. */
+    private fun sendChat(api: BlakeApi, item: OutboxEntity): Result<String> {
+        val body = JSONObject(item.bodyJson)
+        val imageBytes = if (body.has("image_base64")) {
+            Base64.decode(body.getString("image_base64"), Base64.NO_WRAP)
+        } else null
+        return api.chat(
+            text = body.optString("text"),
+            imageBytes = imageBytes,
+            mimeType = body.optString("mime_type", "image/jpeg"),
+            clientId = body.optString("client_id"),
+        )
     }
 
     /** Replace the optimistic (negative, temp-id) cached_events row with one carrying the

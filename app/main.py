@@ -30,7 +30,16 @@ def health():
 
 
 @app.post("/chat", dependencies=[Depends(require_api_key)])
-async def chat(text: str = Form(""), image: UploadFile | None = File(None)):  # noqa: B008
+async def chat(text: str = Form(""), image: UploadFile | None = File(None),
+                client_id: str | None = Form(None)):  # noqa: B008
+    # client_id must be checked before run_turn, not just before the db.append below — the
+    # side effects (log_meal/log_set tool calls) happen inside run_turn, so a retry that only
+    # deduped the summary event would still re-run the tools and double-log.
+    if client_id:
+        existing = db.find_by_client_id(client_id)
+        if existing:
+            return existing["payload"]
+
     content: list[dict] = []
     if image:
         data = base64.b64encode(await image.read()).decode()
@@ -41,7 +50,8 @@ async def chat(text: str = Form(""), image: UploadFile | None = File(None)):  # 
         result = run_turn(client, db, registry, content)
     except Exception as e:  # noqa: BLE001 - never crash the request on a bad image/API error
         return {"error": f"{type(e).__name__}: {e}"}
-    db.append("chat", "turn", {"text": text, "has_image": image is not None, **result})
+    db.append("chat", "turn", {"text": text, "has_image": image is not None, **result},
+              client_id=client_id)
     return result
 
 
