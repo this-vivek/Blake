@@ -35,6 +35,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        Reminders.scheduleIfEnabled(this)
         setContent {
             BlakeTheme {
                 // Scaffold owns inset handling (via bottomBar/innerPadding) for edge-to-edge,

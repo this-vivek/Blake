@@ -1,6 +1,11 @@
 package com.blake.app
 
+import android.Manifest
+import android.app.TimePickerDialog
 import android.content.Context
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -222,11 +227,97 @@ fun SettingsScreen(
             }
         }
 
+        ReminderCard(context)
+
         MusicCard(context)
 
         QuietButton("Unmatched items", onClick = onNavigateToUnmatched)
 
         DataCard(vm, context, onDataReset)
+    }
+}
+
+@Composable
+private fun ReminderCard(context: Context) {
+    var on by remember { mutableStateOf(Reminders.enabled(context)) }
+    var usual by remember { mutableStateOf<Map<String, Double?>>(emptyMap()) }
+    var version by remember { mutableStateOf(0) }  // bumped when an override changes
+    var blocked by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { usual = Reminders.usualHours(context) }
+
+    val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            Reminders.setEnabled(context, true)
+            on = true
+            blocked = false
+        } else {
+            blocked = true
+        }
+    }
+
+    BlakeCard {
+        SectionLabel("Meal reminders")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Remind me to log meals", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Switch(checked = on, onCheckedChange = { want ->
+                if (!want) {
+                    Reminders.setEnabled(context, false)
+                    on = false
+                } else if (Build.VERSION.SDK_INT >= 33 && !Reminders.canNotify(context)) {
+                    askPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    Reminders.setEnabled(context, true)
+                    on = true
+                    blocked = false
+                }
+            })
+        }
+        Text(
+            "At most 3 a day, and only for a meal you have not logged yet. Times follow when you usually eat it; change one to set your own.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (blocked) {
+            Text(
+                "Notifications are turned off for Blake. Allow them in the phone's app settings to get reminders.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        if (on) {
+            Reminders.SLOTS.forEach { slot ->
+                val minutes = remember(version, usual) { Reminders.effectiveMinutes(context, slot, usual[slot]) }
+                val custom = remember(version) { Reminders.override(context, slot) != null }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(slot.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            Reminders.clockText(minutes) + if (custom) " (yours)" else if (usual[slot] != null) " (your usual time)" else " (default)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (custom) {
+                        QuietButton("Use usual", onClick = { Reminders.setOverride(context, slot, null); version++ })
+                    }
+                    QuietButton("Change", onClick = {
+                        TimePickerDialog(
+                            context,
+                            { _, h, m -> Reminders.setOverride(context, slot, h * 60 + m); version++ },
+                            minutes / 60, minutes % 60, false,
+                        ).show()
+                    })
+                }
+            }
+        }
     }
 }
 
