@@ -10,7 +10,7 @@ from app.core.registry import Registry
 from app.core.router import run_turn
 from app.meal_refresh import refresh_meal_suggestion
 from app.today import build_today
-from modules.meals import add_custom_food, list_unmatched, resolve_unmatched
+from modules.meals import add_custom_food, edit_meal, list_unmatched, resolve_unmatched
 from modules.workouts import complete_program_day, suggested_next, today_program_day
 
 app = FastAPI(title="Blake")
@@ -124,6 +124,16 @@ def log_meal_direct(req: LogMealRequest):
     args = {"meal": req.meal, "items": [i.model_dump() for i in req.items],
              "client_id": req.client_id}
     return registry.call("meals__log_meal", args, db)
+
+
+class EditMealRequest(BaseModel):
+    items: list[LogMealItem]
+
+
+@app.post("/meals/{event_id}/edit", dependencies=[Depends(require_api_key)])
+def meals_edit(event_id: int, req: EditMealRequest):
+    return edit_meal({"event_id": event_id, "items": [i.model_dump() for i in req.items]},
+                     registry, db)
 
 
 @app.get("/meals/unmatched", dependencies=[Depends(require_api_key)])

@@ -13,7 +13,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -252,6 +254,9 @@ class TodayViewModel : ViewModel() {
     var chatResultText by mutableStateOf("")
     var chatEventIds by mutableStateOf<List<Pair<String, Int>>>(emptyList())
     var chatUndone by mutableStateOf<Set<Int>>(emptySet())
+    /** Logged meal from the last reply: event id + (food name, editable grams text). */
+    var chatMealId by mutableStateOf<Int?>(null)
+    var chatMealItems by mutableStateOf<List<Pair<String, String>>>(emptyList())
 
     /** Tries the network directly first, for the normal case â€” this keeps chat's rich
      * immediate result (summary text, per-entry Undo) rather than always deferring to the
@@ -264,6 +269,8 @@ class TodayViewModel : ViewModel() {
         chatResultText = ""
         chatEventIds = emptyList()
         chatUndone = emptySet()
+        chatMealId = null
+        chatMealItems = emptyList()
         val api = Prefs.apiFor(context)
         val text = chatInput
         lastSentText = text
@@ -277,6 +284,10 @@ class TodayViewModel : ViewModel() {
                     val (summary, ids) = parseChatResult(json)
                     chatResultText = summary
                     chatEventIds = ids
+                    parseChatMeal(json)?.let { (id, items) ->
+                        chatMealId = id
+                        chatMealItems = items
+                    }
                     chatInput = ""
                     chatImageUri = null
                 },
@@ -300,6 +311,42 @@ class TodayViewModel : ViewModel() {
             val result = withContext(Dispatchers.IO) { api.voidEvent(eventId) }
             result.onSuccess { chatUndone = chatUndone + eventId }
             result.onFailure { chatResultText = "Couldn't undo: ${it.message}" }
+        }
+    }
+
+    fun setChatMealGrams(index: Int, grams: String) {
+        chatMealItems = chatMealItems.mapIndexed { i, it -> if (i == index) it.first to grams else it }
+    }
+
+    /** Server logs the corrected meal and voids the original in one call. */
+    fun saveChatMealEdit(context: Context) {
+        val id = chatMealId ?: return
+        val items = org.json.JSONArray()
+        chatMealItems.forEach { (name, g) ->
+            val grams = g.toDoubleOrNull() ?: return
+            if (grams <= 0) return
+            items.put(JSONObject().put("name", name).put("grams", grams))
+        }
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                api.rawRequest("POST", "/meals/$id/edit", JSONObject().put("items", items).toString())
+            }
+            result.fold(
+                onSuccess = { body ->
+                    val obj = JSONObject(body)
+                    if (obj.has("error")) {
+                        chatResultText = "Couldn't save: ${obj.optString("error")}"
+                    } else {
+                        val newId = obj.optInt("event_id")
+                        chatEventIds = chatEventIds.map { if (it.second == id) it.first to newId else it }
+                        chatMealId = newId
+                        val total = obj.optJSONObject("total")
+                        chatResultText = "Updated — ${Format.kcal(total?.optDouble("kcal", 0.0) ?: 0.0)}"
+                    }
+                },
+                onFailure = { chatResultText = "Couldn't save: ${it.message}" }
+            )
         }
     }
 
@@ -334,6 +381,23 @@ private fun parseChatResult(json: String): Pair<String, List<Pair<String, Int>>>
         }
     }
     return text to ids
+}
+
+private fun parseChatMeal(json: String): Pair<Int, List<Pair<String, String>>>? {
+    val calls = JSONObject(json).optJSONArray("calls") ?: return null
+    for (i in 0 until calls.length()) {
+        val call = calls.getJSONObject(i)
+        if (!call.optString("name").endsWith("log_meal")) continue
+        val output = call.optJSONObject("output") ?: continue
+        val logged = output.optJSONArray("logged") ?: continue
+        if (!output.has("event_id")) continue
+        val items = (0 until logged.length()).map {
+            val o = logged.getJSONObject(it)
+            o.optString("name") to o.optDouble("grams").toInt().toString()
+        }
+        return output.optInt("event_id") to items
+    }
+    return null
 }
 
 private fun optionalDouble(obj: JSONObject?, key: String): Double? {
@@ -764,6 +828,23 @@ private fun ChatResultCard(vm: TodayViewModel) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(vm.chatResultText)
+            if (vm.chatMealId != null && vm.chatMealId !in vm.chatUndone) {
+                vm.chatMealItems.forEachIndexed { i, (name, grams) ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(name, modifier = Modifier.weight(1f))
+                        OutlinedTextField(
+                            value = grams,
+                            onValueChange = { vm.setChatMealGrams(i, it) },
+                            suffix = { Text("g") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.width(110.dp),
+                        )
+                    }
+                }
+                TextButton(onClick = { vm.saveChatMealEdit(context) }) { Text("Save grams") }
+            }
             if (vm.chatEventIds.isNotEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val allUndone = vm.chatEventIds.all { it.second in vm.chatUndone }

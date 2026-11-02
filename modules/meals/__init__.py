@@ -599,3 +599,22 @@ module = Module(
         ),
     ],
 )
+
+
+def edit_meal(args: dict, registry, db) -> dict:
+    """Correct the grams of an already-logged meal (photo/chat result card). Logs the corrected
+    meal first, then voids the original, so a failure never leaves the day with nothing."""
+    event_id = args.get("event_id")
+    items = args.get("items")
+    old = db.get(event_id) if isinstance(event_id, int) else None
+    if not old or old["module"] != "meals" or old["kind"] != "meal":
+        return {"error": "event_id is not a logged meal"}
+    if not isinstance(items, list) or not items:
+        return {"error": "items must be a non-empty list"}
+    new = log_meal({"meal": old["payload"].get("meal", "unspecified"), "items": items}, db)
+    if "event_id" not in new:
+        return {"error": "no items matched", **new}
+    voided = registry.call("events__void_event", {"event_id": event_id}, db)
+    if "error" in voided:
+        return voided
+    return {**new, "replaced": event_id}
