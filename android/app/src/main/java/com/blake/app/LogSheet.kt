@@ -53,6 +53,8 @@ fun LogSheet(vm: TodayViewModel, onDismiss: () -> Unit) {
         }
     }
 
+    LaunchedEffect(Unit) { vm.resetChatResult() }
+
     val canSend = !vm.chatLoading && (vm.chatInput.isNotBlank() || vm.chatImageUri != null)
 
     ModalBottomSheet(

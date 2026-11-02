@@ -166,6 +166,17 @@ class TodayViewModel : ViewModel() {
         pendingTasks = emptyList()
     }
 
+    /** A fresh log sheet starts clean: the previous reply (already saved server-side as a chat
+     * event) is not shown again. Anything typed but unsent is kept. */
+    fun resetChatResult() {
+        if (chatLoading) return
+        chatResultText = ""
+        chatEventIds = emptyList()
+        chatUndone = emptySet()
+        chatMealId = null
+        chatMealItems = emptyList()
+    }
+
     fun loadProgram(context: Context) {
         val api = Prefs.apiFor(context)
         viewModelScope.launch {

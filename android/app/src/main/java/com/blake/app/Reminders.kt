@@ -58,7 +58,12 @@ object QuickLog {
  * come and it is still unlogged. At most [MAX_PER_DAY] a day, each meal once a day.
  */
 object Reminders {
-    const val CHANNEL_ID = "meal_reminders"
+    // A new id: a channel's importance can't be raised once created, so the old quiet
+    // "meal_reminders" channel is left behind and this louder one replaces it.
+    const val CHANNEL_ID = "blake_alerts"
+    private const val OLD_CHANNEL_ID = "meal_reminders"
+    private const val ALERT_COLOR = 0xFFE6A04A.toInt()
+    private val VIBRATION = longArrayOf(0, 250, 120, 250, 120, 400)
     private const val WORK_NAME = "blake-reminders"
     const val MAX_PER_DAY = 3
     val SLOTS = listOf("breakfast", "lunch", "dinner")
@@ -136,25 +141,51 @@ object Reminders {
 
     fun notificationId(slot: String) = 2000 + SLOTS.indexOf(slot)
 
+
+    /** Heads-up channel: high importance (pops over the screen), vibration and lights. */
+    private fun ensureChannel(c: Context) {
+        val manager = NotificationManagerCompat.from(c)
+        manager.deleteNotificationChannel(OLD_CHANNEL_ID)
+        manager.createNotificationChannel(
+            NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_HIGH)
+                .setName("Blake alerts")
+                .setDescription("Meal and task reminders")
+                .setVibrationEnabled(true)
+                .setVibrationPattern(VIBRATION)
+                .setLightsEnabled(true)
+                .setLightColor(ALERT_COLOR)
+                .build()
+        )
+    }
+
+    private fun alertBuilder(c: Context, title: String, text: String, open: PendingIntent): NotificationCompat.Builder =
+        NotificationCompat.Builder(c, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_blake)
+            .setColor(ALERT_COLOR)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text).setBigContentTitle(title))
+            .setContentIntent(open)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_SOUND)
+            .setVibrate(VIBRATION)
+            .setLights(ALERT_COLOR, 600, 600)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(false)
+            .setAutoCancel(true)
+
     /** One notification for tasks due today or overdue. */
     fun postTasks(c: Context, titles: List<String>) {
         if (!canNotify(c)) return
-        NotificationManagerCompat.from(c).createNotificationChannel(
-            NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_DEFAULT)
-                .setName("Meal reminders").build()
-        )
+        ensureChannel(c)
         val open = PendingIntent.getActivity(
             c, 2100, Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val title = if (titles.size == 1) "1 task due" else "${titles.size} tasks due"
-        val notification = NotificationCompat.Builder(c, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_blake)
-            .setContentTitle(title)
-            .setContentText(titles.take(3).joinToString(", "))
-            .setStyle(NotificationCompat.BigTextStyle().bigText(titles.joinToString("\n")))
-            .setContentIntent(open)
-            .setAutoCancel(true)
+        val title = if (titles.size == 1) "Task due: ${titles[0]}" else "${titles.size} tasks need you today"
+        val notification = alertBuilder(c, title, titles.joinToString("\n") { "\u2022 $it" }, open)
+            .addAction(0, "Open tasks", open)
             .build()
         try {
             NotificationManagerCompat.from(c).notify(2100, notification)
@@ -168,10 +199,7 @@ object Reminders {
 
     fun post(c: Context, slot: String, usual: JSONObject?) {
         if (!canNotify(c)) return
-        NotificationManagerCompat.from(c).createNotificationChannel(
-            NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_DEFAULT)
-                .setName("Meal reminders").build()
-        )
+        ensureChannel(c)
         val id = notificationId(slot)
         val open = PendingIntent.getActivity(
             c, id, Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
@@ -182,13 +210,13 @@ object Reminders {
         val names = if (hasUsual) (0 until items!!.length()).joinToString(", ") { items.getJSONObject(it).optString("name") } else ""
         val kcal = usual?.optJSONObject("total")?.optDouble("kcal", 0.0) ?: 0.0
 
-        val builder = NotificationCompat.Builder(c, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_blake)
-            .setContentTitle("${slot.replaceFirstChar { it.uppercase() }} not logged yet")
-            .setContentText(if (hasUsual) "Usual: $names · ${kcal.toInt()} kcal" else "Tap to log it.")
-            .setContentIntent(open)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        val slotName = slot.replaceFirstChar { it.uppercase() }
+        val builder = alertBuilder(
+            c,
+            "$slotName is still not logged",
+            if (hasUsual) "Your usual: $names · ${kcal.toInt()} kcal. One tap to log it." else "Tap to log it before you forget.",
+            open,
+        )
         if (hasUsual) {
             val log = PendingIntent.getBroadcast(
                 c, id,
@@ -197,6 +225,7 @@ object Reminders {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
             builder.addAction(0, "Log usual", log)
+            builder.addAction(0, "Edit", open)
         }
         try {
             NotificationManagerCompat.from(c).notify(id, builder.build())

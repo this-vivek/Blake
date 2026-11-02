@@ -11,8 +11,8 @@ import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.action.actionStartActivity
-import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
+import androidx.glance.ImageProvider
 import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Row
@@ -26,10 +26,11 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 
 private val LOG_ACCENT = Color(0xFFE6C07B)
-private val LOG_ON_ACCENT = Color(0xFF16120A)
+private val LOG_TEXT = Color(0xFFFFFFFF)
 
-/** A one-tap "Log anything" button for the home screen. It opens the log sheet directly
- * (QuickLogActivity), not the app's landing page. */
+/** A one-tap "Log anything" button, drawn as frosted glass (a translucent sheen with a bright
+ * rim; home-screen widgets can't blur what is behind them, so the wallpaper just shows through).
+ * It opens the log sheet directly (QuickLogActivity), not the app's landing page. */
 class LogAnythingWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
@@ -39,8 +40,7 @@ class LogAnythingWidget : GlanceAppWidget() {
             Row(
                 modifier = GlanceModifier
                     .fillMaxSize()
-                    .background(ColorProvider(LOG_ACCENT))
-                    .cornerRadius(28.dp)
+                    .background(ImageProvider(R.drawable.widget_glass))
                     .padding(horizontal = 12.dp, vertical = 8.dp)
                     .clickable(open),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -48,12 +48,12 @@ class LogAnythingWidget : GlanceAppWidget() {
             ) {
                 Text(
                     "+",
-                    style = TextStyle(color = ColorProvider(LOG_ON_ACCENT), fontSize = 26.sp, fontWeight = FontWeight.Bold),
+                    style = TextStyle(color = ColorProvider(LOG_ACCENT), fontSize = 26.sp, fontWeight = FontWeight.Bold),
                 )
                 Spacer(GlanceModifier.width(8.dp))
                 Text(
                     "Log anything",
-                    style = TextStyle(color = ColorProvider(LOG_ON_ACCENT), fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                    style = TextStyle(color = ColorProvider(LOG_TEXT), fontSize = 15.sp, fontWeight = FontWeight.Bold),
                 )
             }
         }

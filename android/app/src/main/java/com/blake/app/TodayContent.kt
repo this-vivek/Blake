@@ -19,7 +19,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -78,7 +81,9 @@ fun TodayScreen(
     val collapseRangePx = with(density) { (HERO_EXPANDED - HERO_COLLAPSED).toPx() }
     // 0 = ring fully open, 1 = tucked into the top-left bar. Driven directly by the scroll
     // position, so it follows the finger both ways.
-    val progress = (scroll.value / collapseRangePx).coerceIn(0f, 1f)
+    // A lambda, read only in the layout/draw phases: the header then moves in the same frame
+    // as the list instead of a frame behind it (which showed as misalignment on slow scrolls).
+    val progress: () -> Float = { (scroll.value / collapseRangePx).coerceIn(0f, 1f) }
 
     Box(Modifier.fillMaxSize()) {
         Column(
@@ -120,9 +125,11 @@ private val RING_BIG = 200.dp
 private val RING_SMALL = 44.dp
 
 /** Title, kcal ring and protein bar that shrink into a compact bar (ring + "kcal left" at
- * the top left, protein at the right) as the page scrolls, and grow back when it scrolls up. */
+ * the top left, protein at the right) as the page scrolls, and grow back when it scrolls up.
+ * [progress] (0 = open, 1 = collapsed) is only read in layout/graphicsLayer/draw lambdas, so
+ * scrolling never recomposes this and the header stays locked to the list. */
 @Composable
-private fun CollapsingHero(vm: TodayViewModel, progress: Float) {
+private fun CollapsingHero(vm: TodayViewModel, progress: () -> Float) {
     val nutrition = vm.todayJson?.optJSONObject("nutrition")
     val kcal = nutrition?.optJSONObject("kcal")
     val protein = nutrition?.optJSONObject("protein_g")
@@ -143,43 +150,55 @@ private fun CollapsingHero(vm: TodayViewModel, progress: Float) {
         else -> "kcal left"
     }
     val date = remember { SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date()) }
-
-    val expandedAlpha = (1f - progress * 2f).coerceIn(0f, 1f)
-    val collapsedAlpha = (progress * 2f - 1f).coerceIn(0f, 1f)
-    val titleAlpha = (1f - progress * 1.6f).coerceIn(0f, 1f)
-    val height = lerp(HERO_EXPANDED, HERO_COLLAPSED, progress)
-    val ringSize = lerp(RING_BIG, RING_SMALL, progress)
+    val density = LocalDensity.current
+    val smallScale = RING_SMALL / RING_BIG
 
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .height(height)
+            .layout { measurable, constraints ->
+                val h = lerp(HERO_EXPANDED, HERO_COLLAPSED, progress()).roundToPx()
+                val placeable = measurable.measure(Constraints.fixed(constraints.maxWidth, h))
+                layout(placeable.width, h) { placeable.place(0, 0) }
+            }
             .background(MaterialTheme.colorScheme.background)
     ) {
-        val ringX = lerp((maxWidth - RING_BIG) / 2, Spacing.lg, progress)
-        val ringY = lerp(84.dp, (HERO_COLLAPSED - RING_SMALL) / 2, progress)
+        val widthPx = with(density) { maxWidth.toPx() }
+        val bigPx = with(density) { RING_BIG.toPx() }
+        val lgPx = with(density) { Spacing.lg.toPx() }
+        val topBigPx = with(density) { 84.dp.toPx() }
+        val topSmallPx = with(density) { ((HERO_COLLAPSED - RING_SMALL) / 2).toPx() }
 
         // Title and date (fade out first)
         Column(
             modifier = Modifier
                 .padding(start = Spacing.lg, top = Spacing.xl)
-                .alpha(titleAlpha),
+                .graphicsLayer { alpha = (1f - progress() * 1.6f).coerceIn(0f, 1f) },
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text("Today", style = MaterialTheme.typography.titleLarge)
             Text(date, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        // The ring: one element that moves and resizes
+        // The ring: laid out once at full size, then scaled and moved on the GPU layer.
         KcalRing(
             actual = actual,
             goal = goal,
-            size = ringSize,
-            stroke = lerp(8.dp, 4.dp, progress),
+            size = RING_BIG,
+            progress = progress,
+            smallScale = smallScale,
             centerText = big,
             centerUnit = unit,
-            centerAlpha = expandedAlpha,
-            modifier = Modifier.offset(x = ringX, y = ringY),
+            modifier = Modifier.graphicsLayer {
+                val p = progress()
+                val scale = 1f + (smallScale - 1f) * p
+                val startX = (widthPx - bigPx) / 2f
+                transformOrigin = TransformOrigin(0f, 0f)
+                scaleX = scale
+                scaleY = scale
+                translationX = startX + (lgPx - startX) * p
+                translationY = topBigPx + (topSmallPx - topBigPx) * p
+            },
         )
 
         // Compact readout beside the small ring
@@ -188,7 +207,7 @@ private fun CollapsingHero(vm: TodayViewModel, progress: Float) {
                 .align(Alignment.CenterStart)
                 .padding(start = Spacing.lg + RING_SMALL + Spacing.md, end = Spacing.lg)
                 .fillMaxWidth()
-                .alpha(collapsedAlpha),
+                .graphicsLayer { alpha = (progress() * 2f - 1f).coerceIn(0f, 1f) },
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -215,7 +234,7 @@ private fun CollapsingHero(vm: TodayViewModel, progress: Float) {
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = Spacing.lg)
                 .padding(bottom = Spacing.lg)
-                .alpha(expandedAlpha),
+                .graphicsLayer { alpha = (1f - progress() * 2f).coerceIn(0f, 1f) },
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -231,7 +250,7 @@ private fun CollapsingHero(vm: TodayViewModel, progress: Float) {
         }
 
         HorizontalDivider(
-            modifier = Modifier.align(Alignment.BottomCenter).alpha(collapsedAlpha),
+            modifier = Modifier.align(Alignment.BottomCenter).graphicsLayer { alpha = (progress() * 2f - 1f).coerceIn(0f, 1f) },
             color = MaterialTheme.blake.divider,
         )
     }
@@ -242,10 +261,10 @@ private fun KcalRing(
     actual: Double,
     goal: Double?,
     size: Dp,
-    stroke: Dp,
+    progress: () -> Float,
+    smallScale: Float,
     centerText: String,
     centerUnit: String,
-    centerAlpha: Float,
     modifier: Modifier = Modifier,
 ) {
     val over = goal != null && actual > goal
@@ -254,7 +273,10 @@ private fun KcalRing(
     val progressColor = if (over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
     Box(modifier.size(size), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
-            val strokePx = stroke.toPx()
+            // On screen the stroke is 8dp open and 4dp collapsed; the layer scale shrinks it too.
+            val p = progress()
+            val scale = 1f + (smallScale - 1f) * p
+            val strokePx = (8.dp.toPx() + (4.dp.toPx() - 8.dp.toPx()) * p) / scale
             val inset = strokePx / 2
             val arcSize = Size(this.size.width - strokePx, this.size.height - strokePx)
             drawArc(track, -90f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(strokePx))
@@ -263,11 +285,11 @@ private fun KcalRing(
                     style = Stroke(strokePx, cap = StrokeCap.Round))
             }
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.alpha(centerAlpha)) {
-            Text(
-                centerText,
-                style = MaterialTheme.typography.displayMedium.copy(fontSize = (44f * size.value / 200f).sp),
-            )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.graphicsLayer { alpha = (1f - progress() * 2f).coerceIn(0f, 1f) },
+        ) {
+            Text(centerText, style = MaterialTheme.typography.displayMedium.copy(fontSize = 44.sp))
             Text(centerUnit, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
