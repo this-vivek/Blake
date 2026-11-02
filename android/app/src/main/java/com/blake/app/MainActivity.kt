@@ -119,7 +119,13 @@ fun BlakeApp() {
             composable("timeline") { TimelineScreen() }
             composable("insights") { InsightsScreen() }
             composable("settings") {
-                SettingsScreen(onBack = { navController.popBackStack() })
+                SettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onNavigateToUnmatched = { navController.navigate("unmatched") },
+                )
+            }
+            composable("unmatched") {
+                UnmatchedScreen(onBack = { navController.popBackStack() })
             }
         }
     }

@@ -126,6 +126,37 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
         }
     }
 
+    fun unmatchedItems(): Result<String> = get("$baseUrl/meals/unmatched")
+
+    fun addCustomFood(name: String, per100: Map<String, Double>): Result<String> {
+        val body = JSONObject().put("name", name).put("per100", JSONObject(per100)).toString()
+        return postJson("$baseUrl/meals/custom_food", body)
+    }
+
+    fun resolveUnmatched(unmatchedId: Int, mappedName: String, grams: Double? = null): Result<String> {
+        val body = JSONObject().put("unmatched_id", unmatchedId).put("mapped_name", mappedName).apply {
+            grams?.let { put("grams", it) }
+        }.toString()
+        return postJson("$baseUrl/meals/unmatched/resolve", body)
+    }
+
+    private fun postJson(url: String, body: String): Result<String> {
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .header("X-API-Key", apiKey)
+                .post(body.toRequestBody("application/json".toMediaType()))
+                .build()
+            client.newCall(request).execute().use { resp ->
+                val respBody = resp.body?.string().orEmpty()
+                if (resp.isSuccessful) Result.success(respBody)
+                else Result.failure(IOException("HTTP ${resp.code}: $respBody"))
+            }
+        } catch (e: IOException) {
+            Result.failure(e)
+        }
+    }
+
     fun completeTask(taskId: Int): Result<String> {
         return try {
             val request = Request.Builder()

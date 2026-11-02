@@ -99,7 +99,7 @@ class SettingsViewModel : ViewModel() {
 }
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = viewModel()) {
+fun SettingsScreen(onBack: () -> Unit, onNavigateToUnmatched: () -> Unit = {}, vm: SettingsViewModel = viewModel()) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences(Prefs.NAME, Context.MODE_PRIVATE)
     var baseUrl by remember {
@@ -177,6 +177,12 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = viewModel()) {
                 Text("Save goals")
             }
             if (vm.goalsStatus.isNotBlank()) Text(vm.goalsStatus)
+        }
+
+        Divider()
+
+        TextButton(onClick = onNavigateToUnmatched, modifier = Modifier.fillMaxWidth()) {
+            Text("Unmatched items")
         }
     }
 }
