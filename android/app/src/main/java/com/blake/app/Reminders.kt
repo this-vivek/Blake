@@ -81,7 +81,32 @@ object Reminders {
     }
 
     fun scheduleIfEnabled(c: Context) {
-        if (enabled(c)) schedule(c)
+        if (!enabled(c)) return
+        schedule(c)
+        // Phones delay periodic work for hours when idle; opening the app also runs one check.
+        WorkManager.getInstance(c).enqueueUniqueWork(
+            "blake-reminders-now", androidx.work.ExistingWorkPolicy.REPLACE,
+            androidx.work.OneTimeWorkRequestBuilder<ReminderWorker>().build(),
+        )
+    }
+
+    /** Posts a sample alert right now so you can see what reminders look like and whether the
+     * phone lets Blake notify at all. Returns false when notifications are blocked. */
+    fun sendTest(c: Context): Boolean {
+        if (!canNotify(c)) return false
+        ensureChannel(c)
+        val open = PendingIntent.getActivity(
+            c, 2998, Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        return try {
+            NotificationManagerCompat.from(c).notify(
+                2999, alertBuilder(c, "Lunch is still not logged", "This is how Blake's reminders look. Tap to open.", open).build()
+            )
+            true
+        } catch (e: SecurityException) {
+            false
+        }
     }
 
     private fun schedule(c: Context) {
@@ -176,8 +201,8 @@ object Reminders {
             .setAutoCancel(true)
 
     /** One notification for tasks due today or overdue. */
-    fun postTasks(c: Context, titles: List<String>) {
-        if (!canNotify(c)) return
+    fun postTasks(c: Context, titles: List<String>): Boolean {
+        if (!canNotify(c)) return false
         ensureChannel(c)
         val open = PendingIntent.getActivity(
             c, 2100, Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
@@ -189,16 +214,17 @@ object Reminders {
             .build()
         try {
             NotificationManagerCompat.from(c).notify(2100, notification)
+            return true
         } catch (e: SecurityException) {
-            // permission revoked between the check and the call
+            return false  // permission revoked between the check and the call
         }
     }
 
     const val TASKS_SLOT = "tasks"
     const val TASKS_HOUR = 9
 
-    fun post(c: Context, slot: String, usual: JSONObject?) {
-        if (!canNotify(c)) return
+    fun post(c: Context, slot: String, usual: JSONObject?): Boolean {
+        if (!canNotify(c)) return false
         ensureChannel(c)
         val id = notificationId(slot)
         val open = PendingIntent.getActivity(
@@ -229,8 +255,9 @@ object Reminders {
         }
         try {
             NotificationManagerCompat.from(c).notify(id, builder.build())
+            return true
         } catch (e: SecurityException) {
-            // permission revoked between the check and the call: nothing to do
+            return false  // permission revoked between the check and the call
         }
     }
 }
@@ -262,8 +289,7 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
             if (slot in logged || Reminders.alreadySent(c, slot)) continue
             val target = Reminders.effectiveMinutes(c, slot, usualHours[slot])
             if (minutes in target..(target + 120)) {
-                Reminders.post(c, slot, usualBySlot?.optJSONObject(slot))
-                Reminders.markSent(c, slot)
+                if (Reminders.post(c, slot, usualBySlot?.optJSONObject(slot))) Reminders.markSent(c, slot)
             }
         }
 
@@ -276,8 +302,7 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 .filter { !it.isNull("due_status") && it.optString("due_status") in setOf("today", "overdue") }
                 .map { it.optString("title") }
             if (due.isNotEmpty()) {
-                Reminders.postTasks(c, due)
-                Reminders.markSent(c, Reminders.TASKS_SLOT)
+                if (Reminders.postTasks(c, due)) Reminders.markSent(c, Reminders.TASKS_SLOT)
             }
         }
         return Result.success()

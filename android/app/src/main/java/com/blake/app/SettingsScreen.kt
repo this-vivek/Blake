@@ -359,6 +359,16 @@ private fun ReminderCard(context: Context) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        var testResult by remember { mutableStateOf("") }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            QuietButton("Send a test notification", onClick = {
+                testResult = if (Reminders.sendTest(context)) "Sent. If you don't see it, check the phone's battery and notification settings for Blake."
+                else "Blocked: notifications are off for Blake in the phone's settings."
+            })
+        }
+        if (testResult.isNotBlank()) {
+            Text(testResult, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         if (blocked) {
             Text(
                 "Notifications are turned off for Blake. Allow them in the phone's app settings to get reminders.",

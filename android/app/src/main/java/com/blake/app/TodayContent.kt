@@ -271,7 +271,7 @@ private fun KcalRing(
     val fraction = if (goal != null && goal > 0) (actual / goal).toFloat().coerceIn(0f, 1f) else 0f
     val track = MaterialTheme.blake.divider
     val progressColor = if (over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    Box(modifier.size(size), contentAlignment = Alignment.Center) {
+    Box(modifier.requiredSize(size), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             // On screen the stroke is 8dp open and 4dp collapsed; the layer scale shrinks it too.
             val p = progress()
