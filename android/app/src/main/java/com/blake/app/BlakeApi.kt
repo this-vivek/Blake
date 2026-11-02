@@ -60,6 +60,9 @@ class BlakeApi(private val baseUrl: String, private val apiKey: String) {
     /** Last completed week's review (written on the first request, then returned as saved). */
     fun weeklyReview(): Result<String> = get("$baseUrl/review/weekly")
 
+    /** Writes the last completed week's review again (one Sonnet call) and saves it. */
+    fun refreshWeeklyReview(): Result<String> = postJson("$baseUrl/review/weekly/refresh", "{}")
+
     fun today(): Result<String> = get("$baseUrl/today")
 
     /** Fire-and-forget on app foreground — starts the free-tier host's cold boot while

@@ -216,7 +216,7 @@ class SessionViewModel : ViewModel() {
         val seconds = if (timed > 0) timed else targetReps(ex.reps) * 3
         sessionKcal += estimateKcalForWarmup(seconds)
         viewModelScope.launch {
-            val body = JSONObject().put("seconds", seconds).toString()
+            val body = JSONObject().put("seconds", seconds).put("name", ex.name).toString()
             OutboxRepository.enqueue(context, "/log/warmup", "POST", body, "warmup")
         }
     }

@@ -62,8 +62,20 @@ data class TimelineEntry(
     val pending: Boolean = false,
     val kcal: Double = 0.0,
     val spend: Double = 0.0,
-    val isSet: Boolean = false,
     val isTaskDone: Boolean = false,
+    /** Shown only when the entry is opened (items of a meal, exercises of a workout). */
+    val lines: List<String> = emptyList(),
+    /** Every event behind this row (a workout row stands for many sets). */
+    val ids: List<Long> = emptyList(),
+    val setCount: Int = 0,
+    // Raw workout facts, used to build the single "Training" row for a day.
+    val kind: String = "",
+    val exercise: String = "",
+    val weightKg: Double = 0.0,
+    val reps: Int = 0,
+    val seconds: Double = 0.0,
+    val burned: Double = 0.0,
+    val moveName: String = "",
 )
 
 private class DayGroup(val key: String, val label: String, val entries: List<TimelineEntry>)
@@ -143,12 +155,17 @@ class TimelineViewModel : ViewModel() {
         }
     }
 
-    fun undo(context: Context, eventId: Long) {
+    /** Undoes every event behind a row (a Training row stands for many sets). */
+    fun undo(context: Context, eventIds: List<Long>) {
         val api = Prefs.apiFor(context)
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { api.voidEvent(eventId.toInt()) }
-            result.onSuccess {
-                networkEntries = networkEntries.map { if (it.id == eventId) it.copy(voided = true, kcal = 0.0, spend = 0.0, isSet = false, isTaskDone = false) else it }
+            val undone = mutableSetOf<Long>()
+            for (id in eventIds) {
+                val result = withContext(Dispatchers.IO) { api.voidEvent(id.toInt()) }
+                if (result.isSuccess) undone += id
+            }
+            networkEntries = networkEntries.map {
+                if (it.id in undone) it.copy(voided = true, kcal = 0.0, spend = 0.0, setCount = 0, isTaskDone = false) else it
             }
         }
     }
@@ -179,54 +196,52 @@ private fun timeLabel(epochSeconds: Double): String =
 
 private fun cap(s: String) = s.replaceFirstChar { it.uppercase() }
 
-/** Turns one logged event into a readable row; null for kinds that are settings, not logs
- * (program, recipes, custom foods, goals) and for void markers. */
+/** Turns one logged event into a row; null for kinds that are settings, not logs (program,
+ * recipes, custom foods, goals) and for void markers. Details go in `lines`, which the row
+ * only shows when tapped. */
 private fun buildEntry(
     id: Long, module: String, kind: String, ts: Double, p: JSONObject, voided: Boolean, pending: Boolean = false,
 ): TimelineEntry? = when (kind) {
     "meal" -> {
         val items = p.optJSONArray("items")
-        val parts = (0 until (items?.length() ?: 0)).map {
+        val lines = (0 until (items?.length() ?: 0)).map {
             val o = items!!.getJSONObject(it)
-            "${cap(o.optString("name"))} ${o.optInt("grams")} g"
+            "${cap(o.optString("name"))} \u00b7 ${o.optInt("grams")} g"
         }
         val kcal = p.optJSONObject("total")?.optDouble("kcal", 0.0) ?: 0.0
         TimelineEntry(
-            id, module, ts, cap(p.optString("meal", "meal")), parts.joinToString(" · "),
-            if (pending) "syncing" else Format.kcal(kcal), voided, pending, kcal = if (voided) 0.0 else kcal,
+            id, module, ts, cap(p.optString("meal", "meal")), "",
+            if (pending) "syncing" else Format.kcal(kcal), voided, pending,
+            kcal = if (voided) 0.0 else kcal, lines = lines, ids = listOf(id), kind = "meal",
         )
     }
-    "set" -> {
-        val weight = p.optDouble("weight_kg")
-        val reps = p.optInt("reps")
-        TimelineEntry(
-            id, module, ts, cap(p.optString("exercise")),
-            "${if (weight == 0.0) "Bodyweight" else Format.weightKg(weight)} × $reps",
-            if (p.has("e1rm")) "e1RM ${Format.weightKg(p.optDouble("e1rm"))}" else "",
-            voided, pending, isSet = !voided,
-        )
-    }
+    "set" -> TimelineEntry(
+        id, module, ts, cap(p.optString("exercise")), "", "", voided, pending, ids = listOf(id), kind = "set",
+        exercise = cap(p.optString("exercise")), weightKg = p.optDouble("weight_kg"), reps = p.optInt("reps"),
+        burned = p.optDouble("kcal_burned", 0.0),
+    )
+    "warmup" -> TimelineEntry(
+        id, module, ts, "Warm-up", "", "", voided, pending, ids = listOf(id), kind = "warmup",
+        seconds = p.optDouble("seconds"), burned = p.optDouble("kcal_burned", 0.0), moveName = p.optString("name"),
+    )
     "expense" -> {
         val amount = p.optDouble("amount")
         val note = p.optString("note").trim()
         TimelineEntry(
             id, module, ts, if (note.isNotEmpty()) note else cap(p.optString("category")),
-            cap(p.optString("category")) + if (p.has("location")) " · location saved" else "",
-            Format.currency(amount), voided, pending, spend = if (voided) 0.0 else amount,
+            cap(p.optString("category")), Format.currency(amount), voided, pending,
+            spend = if (voided) 0.0 else amount, ids = listOf(id), kind = "expense",
+            lines = if (p.has("location")) listOf("Location saved with this spend") else emptyList(),
         )
     }
-    "warmup" -> {
-        val seconds = p.optDouble("seconds")
-        TimelineEntry(
-            id, module, ts, "Warm-up",
-            if (seconds >= 60) "${(seconds / 60).toInt()} min" else "${seconds.toInt()} sec",
-            "${Format.kcal(p.optDouble("kcal_burned"))} burned", voided, pending,
-        )
-    }
-    "task" -> TimelineEntry(id, module, ts, p.optString("title"), "Added", "", voided, pending)
-    "task_done" -> TimelineEntry(id, module, ts, p.optString("title"), "Completed", "", voided, pending, isTaskDone = !voided)
+    "task" -> TimelineEntry(id, module, ts, p.optString("title"), "Added", "", voided, pending, ids = listOf(id), kind = "task")
+    "task_done" -> TimelineEntry(
+        id, module, ts, p.optString("title"), "Completed", "", voided, pending,
+        isTaskDone = !voided, ids = listOf(id), kind = "task_done",
+    )
     "unmatched" -> TimelineEntry(
-        id, module, ts, cap(p.optString("name")), "Not matched to a food", "${p.optDouble("grams").toInt()} g", voided, pending,
+        id, module, ts, cap(p.optString("name")), "Not matched to a food", "${p.optDouble("grams").toInt()} g",
+        voided, pending, ids = listOf(id), kind = "unmatched",
     )
     else -> null
 }
@@ -258,20 +273,79 @@ private fun parseModule(module: String, json: String): List<TimelineEntry> {
 private fun groupByDay(entries: List<TimelineEntry>): List<DayGroup> {
     val groups = LinkedHashMap<String, MutableList<TimelineEntry>>()
     entries.forEach { groups.getOrPut(dayKey(it.ts)) { mutableListOf() }.add(it) }
-    return groups.map { (key, list) -> DayGroup(key, dayLabel(list.first().ts), list) }
+    return groups.map { (key, list) ->
+        DayGroup(key, dayLabel(list.first().ts), collapseTraining(list).sortedByDescending { it.ts })
+    }
+}
+
+private fun plural(n: Int, word: String) = "$n $word${if (n == 1) "" else "s"}"
+
+private fun clockLength(seconds: Double): String {
+    val total = seconds.toInt()
+    return if (total >= 60) "${total / 60} min" + (if (total % 60 >= 30) " 30 s" else "") else "$total s"
+}
+
+/** "Bench Press: 3 x 14 at 60 kg" instead of one row per set. */
+private fun exerciseLine(name: String, sets: List<TimelineEntry>): String {
+    val reps = sets.map { it.reps }
+    val repsText = if (reps.distinct().size == 1) "${sets.size} \u00d7 ${reps.first()}"
+    else "${plural(sets.size, "set")} \u00b7 ${reps.joinToString("/")} reps"
+    val weights = sets.map { it.weightKg }.filter { it > 0 }.distinct().sorted()
+    val weightText = when {
+        weights.isEmpty() -> "bodyweight"
+        weights.size == 1 -> Format.weightKg(weights.first())
+        else -> "${Format.weightKg(weights.first())} to ${Format.weightKg(weights.last())}"
+    }
+    return "$name \u00b7 $repsText \u00b7 $weightText"
+}
+
+/** All of a day's sets and warm-up moves become one "Training" row. Opening it lists the
+ * warm-up moves once and each exercise once with its sets x reps. */
+private fun collapseTraining(day: List<TimelineEntry>): List<TimelineEntry> {
+    val isTraining = { e: TimelineEntry -> e.kind == "set" || e.kind == "warmup" }
+    val others = day.filterNot(isTraining)
+    val live = day.filter { isTraining(it) && !it.voided }
+    if (live.isEmpty()) return others
+
+    val warmups = live.filter { it.kind == "warmup" }.sortedBy { it.ts }
+    val sets = live.filter { it.kind == "set" }.sortedBy { it.ts }
+    val lines = mutableListOf<String>()
+    if (warmups.isNotEmpty()) {
+        val seconds = warmups.sumOf { it.seconds }
+        lines += "Warm-up \u00b7 ${plural(warmups.size, "move")} \u00b7 ${clockLength(seconds)}"
+        warmups.filter { it.moveName.isNotBlank() }.groupBy { it.moveName }.forEach { (name, moves) ->
+            lines += "   $name \u00b7 ${clockLength(moves.sumOf { it.seconds })}"
+        }
+    }
+    sets.groupBy { it.exercise }.forEach { (name, group) -> lines += exerciseLine(name, group) }
+
+    val exercises = sets.map { it.exercise }.distinct().size
+    val burned = live.sumOf { it.burned }
+    val detail = when {
+        sets.isEmpty() -> "Warm-up only"
+        else -> "${plural(exercises, "exercise")} \u00b7 ${plural(sets.size, "set")}"
+    }
+    val training = TimelineEntry(
+        id = live.first().id, module = "workouts", ts = live.minOf { it.ts },
+        title = "Training", detail = detail,
+        value = if (burned > 0) "${Format.kcal(burned)} burned" else "",
+        voided = false, pending = live.any { it.pending },
+        lines = lines, ids = live.flatMap { it.ids }, setCount = sets.size, kind = "training",
+    )
+    return others + training
 }
 
 private fun summaryOf(entries: List<TimelineEntry>): String {
     val parts = mutableListOf<String>()
     val kcal = entries.sumOf { it.kcal }
     val spend = entries.sumOf { it.spend }
-    val sets = entries.count { it.isSet }
+    val sets = entries.sumOf { it.setCount }
     val done = entries.count { it.isTaskDone }
     if (kcal > 0) parts.add(Format.kcal(kcal))
-    if (sets > 0) parts.add("$sets set${if (sets == 1) "" else "s"}")
+    if (sets > 0) parts.add(plural(sets, "set"))
     if (spend > 0) parts.add(Format.currency(spend))
     if (done > 0) parts.add("$done done")
-    return if (parts.isEmpty()) "${entries.size} entr${if (entries.size == 1) "y" else "ies"}" else parts.joinToString(" · ")
+    return if (parts.isEmpty()) "${entries.size} entr${if (entries.size == 1) "y" else "ies"}" else parts.joinToString(" \u00b7 ")
 }
 
 @Composable
@@ -403,14 +477,16 @@ private fun DayCard(day: DayGroup, open: Boolean, onToggle: () -> Unit, vm: Time
 @Composable
 private fun EntryRow(entry: TimelineEntry, vm: TimelineViewModel) {
     val context = LocalContext.current
-    var showUndo by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(false) }
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val strike = if (entry.voided) TextDecoration.LineThrough else TextDecoration.None
+    val canUndo = !entry.voided && !entry.pending && entry.ids.all { it > 0 }
+    val expandable = !entry.voided && (entry.lines.isNotEmpty() || canUndo)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = !entry.voided && !entry.pending) { showUndo = !showUndo }
+            .clickable(enabled = expandable) { open = !open }
             .padding(vertical = Spacing.md),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -428,11 +504,7 @@ private fun EntryRow(entry: TimelineEntry, vm: TimelineViewModel) {
                     color = if (entry.voided) muted else MaterialTheme.colorScheme.onSurface,
                 )
                 if (entry.detail.isNotBlank()) {
-                    Text(
-                        entry.detail,
-                        style = MaterialTheme.typography.bodySmall.copy(textDecoration = strike),
-                        color = muted,
-                    )
+                    Text(entry.detail, style = MaterialTheme.typography.bodySmall.copy(textDecoration = strike), color = muted)
                 }
                 if (entry.pending) Text("Syncing...", style = MaterialTheme.typography.bodySmall, color = muted)
                 if (entry.voided) Text("Undone", style = MaterialTheme.typography.bodySmall, color = muted)
@@ -444,9 +516,32 @@ private fun EntryRow(entry: TimelineEntry, vm: TimelineViewModel) {
                     color = muted,
                 )
             }
+            if (expandable && entry.lines.isNotEmpty()) {
+                Icon(
+                    BlakeIcons.ChevronDown,
+                    contentDescription = if (open) "Hide details" else "Show details",
+                    tint = muted,
+                    modifier = Modifier.size(18.dp).padding(top = 2.dp).rotate(if (open) 180f else 0f),
+                )
+            }
         }
-        if (showUndo && !entry.voided && !entry.pending) {
-            QuietButton("Undo", onClick = { vm.undo(context, entry.id); showUndo = false })
+        if (open) {
+            if (entry.lines.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.padding(start = 60.dp + Spacing.md),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    entry.lines.forEach { line ->
+                        Text(line, style = MaterialTheme.typography.bodySmall, color = muted)
+                    }
+                }
+            }
+            if (canUndo) {
+                QuietButton(
+                    if (entry.kind == "training") "Undo this workout" else "Undo",
+                    onClick = { vm.undo(context, entry.ids); open = false },
+                )
+            }
         }
     }
 }

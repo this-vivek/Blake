@@ -15,7 +15,7 @@ Claude reads free text and photos and routes them to small, pluggable modules (m
 - **Workout session:** starts from your weekly program, always with a warm-up (which also counts toward kcal burned). Every move has numbered steps and a looping start/end photo animation, plus a "Watch a demo" button that opens a video search. A Back button steps to the previous move, breaks (30 s after the warm-up, 45 s before core and cardio, 90 s before strength work) separate exercises, and an "Up next" line previews what is coming. Large weight and reps steppers, suggested weight from progressive overload, rest timer, elapsed time and kcal burned. Sets are saved as you log them, so closing the app mid-session loses nothing. Starting a session can open YouTube Music.
 - **Spend:** amount, description, category, and where it was spent (location is optional).
 - **Insights:** 14 and 30 day trends with goal lines, streaks (daily with one grace day a week, weekly for training), volume by muscle group, and a weekly review written by Sonnet from a packet of numbers. Any number in the write-up that is not in the packet is rejected, and a code-written summary is used instead.
-- **Timeline:** one expandable card per day with totals, filters by type, struck-through undone entries.
+- **Timeline:** one expandable card per day with totals and filters. Each meal is one line (tap for the foods); all training in a day is one row (tap for the warm-up moves and each exercise as sets x reps). Undone entries are struck through.
 - **Unknown foods:** the Unmatched screen looks up per-100 g values (USDA FoodData Central first, otherwise a clearly labelled AI estimate), shows where they came from, and saves them only when you approve.
 - **Reminders:** an optional notification for a meal you have not logged, at the time you usually eat it (or one you set), at most 3 a day, with a "Log usual" button that logs it without opening the app.
 - **Settings:** server connection, goals, music playlist link, and data resets (reset today, reset all logs).
@@ -68,7 +68,7 @@ All endpoints except `/health` need the `X-API-Key` header when `BLAKE_API_KEY` 
 | Workouts | `POST /log/set`, `GET /suggest/workout`, `GET /suggest/next_set`, `GET /program/today`, `POST /program/complete` |
 | Spend and tasks | `POST /log/expense` (amount, category, note, optional lat/lon/accuracy), `POST /tasks/{id}/complete` |
 | Insights | `GET /trends?metric=&days=` (kcal, protein, spend, workout_days, volume), `GET /insights?days=` (all trends plus streaks) |
-| Review | `GET /review/weekly` (last completed week; written on first request, then saved) |
+| Review | `GET /review/weekly` (last completed week; written on first request, then saved), `POST /review/weekly/refresh` (write it again) |
 | Goals | `GET /goals`, `PUT /goals` |
 | Corrections | `POST /events/{id}/void`, `POST /reset/day`, `POST /reset/logs` (both need `{"confirm": true}`) |
 

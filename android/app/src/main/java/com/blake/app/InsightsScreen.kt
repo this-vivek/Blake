@@ -63,6 +63,27 @@ class InsightsViewModel : ViewModel() {
     var reviewEmptyMessage by mutableStateOf("")
     var reviewLoading by mutableStateOf(false)
     var reviewError by mutableStateOf("")
+    var refreshing by mutableStateOf(false)
+
+    /** The Refresh button: reloads the numbers and has Sonnet write the weekly review again. */
+    fun refresh(context: Context) {
+        if (refreshing) return
+        refreshing = true
+        reviewError = ""
+        load(context, days)
+        val prefs = context.getSharedPreferences(Prefs.NAME, Context.MODE_PRIVATE)
+        val api = Prefs.apiFor(context)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { api.refreshWeeklyReview() }
+            refreshing = false
+            result.fold(
+                onSuccess = { json ->
+                    if (applyReview(json)) prefs.edit().putString("weekly_review_cache", json).apply()
+                },
+                onFailure = { reviewError = "Couldn't refresh the review: ${it.message}" },
+            )
+        }
+    }
 
     fun loadReview(context: Context) {
         val prefs = context.getSharedPreferences(Prefs.NAME, Context.MODE_PRIVATE)
@@ -184,7 +205,14 @@ fun InsightsScreen(vm: InsightsViewModel = viewModel()) {
             .padding(top = Spacing.xl, bottom = Spacing.xl),
         verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
-        Text("Insights", style = MaterialTheme.typography.titleLarge)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Insights", style = MaterialTheme.typography.titleLarge)
+            QuietButton(if (vm.refreshing) "Refreshing..." else "Refresh", enabled = !vm.refreshing, onClick = { vm.refresh(context) })
+        }
 
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             BlakeChip("14 days", selected = vm.days == 14, onClick = { vm.load(context, 14) })
@@ -224,6 +252,12 @@ fun InsightsScreen(vm: InsightsViewModel = viewModel()) {
 private fun ReviewCard(vm: InsightsViewModel) {
     BlakeCard {
         SectionLabel("Last week")
+        if (vm.refreshing) {
+            Text("Writing a new review...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        }
+        if (vm.reviewError.isNotEmpty() && vm.reviewSummary.isNotEmpty()) {
+            Text(vm.reviewError, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
         when {
             vm.reviewSummary.isNotEmpty() -> {
                 Text(vm.reviewSummary, style = MaterialTheme.typography.bodyLarge)
