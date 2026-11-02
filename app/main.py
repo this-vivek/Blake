@@ -9,6 +9,8 @@ from app.core.db import Db
 from app.core.registry import Registry
 from app.core.router import run_turn
 from app.food_lookup import propose_food
+from app.insights import insights as build_insights
+from app.insights import trend as build_trend
 from app.meal_refresh import refresh_meal_suggestion
 from app.reset import reset_day, reset_logs
 from app.today import build_today
@@ -263,6 +265,18 @@ class GoalsRequest(BaseModel):
 def put_goals(req: GoalsRequest):
     args = {k: v for k, v in req.model_dump().items() if v is not None}
     return registry.call("goals__set_goal", args, db)
+
+
+@app.get("/trends", dependencies=[Depends(require_api_key)])
+def trends(metric: str, days: int = 14):
+    """One metric over the last `days` local days: points, goal, average, goal-hit percentage."""
+    return build_trend(db, registry, metric, days)
+
+
+@app.get("/insights", dependencies=[Depends(require_api_key)])
+def insights_view(days: int = 14):
+    """Everything on the Insights tab in one call: every trend plus the streaks."""
+    return build_insights(db, registry, days)
 
 
 @app.get("/today", dependencies=[Depends(require_api_key)])
