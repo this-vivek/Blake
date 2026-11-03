@@ -1,6 +1,7 @@
 package com.blake.app
 
 import android.Manifest
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -77,12 +78,59 @@ object Reminders {
 
     fun setEnabled(c: Context, on: Boolean) {
         prefs(c).edit().putBoolean("reminders_enabled", on).apply()
-        if (on) schedule(c) else WorkManager.getInstance(c).cancelUniqueWork(WORK_NAME)
+        if (on) {
+            scheduleIfEnabled(c)
+        } else {
+            WorkManager.getInstance(c).cancelUniqueWork(WORK_NAME)
+            scheduleNextAlarm(c, emptyMap())  // cancels the alarm: reminders are off
+        }
+    }
+
+    // What the last check did, shown in Settings so a silent reminder can be explained.
+    fun recordCheck(c: Context, note: String) {
+        prefs(c).edit().putLong("reminder_last_check", System.currentTimeMillis()).putString("reminder_last_note", note).apply()
+    }
+
+    fun lastCheckText(c: Context): String? {
+        val at = prefs(c).getLong("reminder_last_check", 0L)
+        if (at == 0L) return null
+        val time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(at))
+        return "Last check $time: ${prefs(c).getString("reminder_last_note", "")}"
+    }
+
+    private const val ALARM_REQUEST = 3100
+
+    /** Arms one inexact alarm for the next reminder time (a minute after it). WorkManager alone
+     * can be delayed for hours on an idle phone; setAndAllowWhileIdle needs no special
+     * permission and still fires in Doze, within a few minutes of the time. */
+    fun scheduleNextAlarm(c: Context, usual: Map<String, Double?>) {
+        val am = c.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val pi = PendingIntent.getBroadcast(
+            c, ALARM_REQUEST, Intent(c, ReminderAlarmReceiver::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        if (!enabled(c)) { am.cancel(pi); return }
+        val now = Calendar.getInstance()
+        val nowMin = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+        val allTimes = SLOTS.map { effectiveMinutes(c, it, usual[it]) } + TASKS_HOUR * 60
+        val pendingToday = SLOTS.filter { !alreadySent(c, it) }.map { effectiveMinutes(c, it, usual[it]) } +
+            (if (alreadySent(c, TASKS_SLOT)) emptyList() else listOf(TASKS_HOUR * 60))
+        val cal = Calendar.getInstance().apply { set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
+        val nextToday = pendingToday.filter { it > nowMin }.minOrNull()
+        val minutes = if (nextToday != null) nextToday else { cal.add(Calendar.DAY_OF_YEAR, 1); allTimes.min() }
+        cal.set(Calendar.HOUR_OF_DAY, minutes / 60)
+        cal.set(Calendar.MINUTE, minutes % 60)
+        try {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis + 60_000L, pi)
+        } catch (e: SecurityException) {
+            // alarms refused on this phone: the periodic check still runs
+        }
     }
 
     fun scheduleIfEnabled(c: Context) {
         if (!enabled(c)) return
         schedule(c)
+        scheduleNextAlarm(c, emptyMap())
         // Phones delay periodic work for hours when idle; opening the app also runs one check.
         WorkManager.getInstance(c).enqueueUniqueWork(
             "blake-reminders-now", androidx.work.ExistingWorkPolicy.REPLACE,
@@ -266,7 +314,16 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
     override suspend fun doWork(): Result {
         val c = applicationContext
         if (!Reminders.enabled(c)) return Result.success()
-        val today = freshOrCachedToday(c) ?: return Result.success()
+        if (!Reminders.canNotify(c)) {
+            Reminders.recordCheck(c, "notifications are blocked for Blake in the phone settings")
+            return Result.success()
+        }
+        val today = freshOrCachedToday(c)
+        if (today == null) {
+            Reminders.recordCheck(c, "could not reach the server and nothing is cached yet")
+            Reminders.scheduleNextAlarm(c, emptyMap())
+            return Result.success()
+        }
 
         val nutrition = today.optJSONObject("nutrition")
         val logged = mutableSetOf<String>()
@@ -284,12 +341,19 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val usualHours = Reminders.usualHoursFrom(today)
         val usualBySlot = nutrition?.optJSONObject("usual")
 
+        val notes = mutableListOf<String>()
         for (slot in Reminders.SLOTS) {
             if (Reminders.sentToday(c) >= Reminders.MAX_PER_DAY) break
-            if (slot in logged || Reminders.alreadySent(c, slot)) continue
             val target = Reminders.effectiveMinutes(c, slot, usualHours[slot])
+            if (slot in logged) { notes += "$slot already logged"; continue }
+            if (Reminders.alreadySent(c, slot)) { notes += "$slot reminder already sent"; continue }
             if (minutes in target..(target + 120)) {
-                if (Reminders.post(c, slot, usualBySlot?.optJSONObject(slot))) Reminders.markSent(c, slot)
+                if (Reminders.post(c, slot, usualBySlot?.optJSONObject(slot))) {
+                    Reminders.markSent(c, slot)
+                    notes += "sent the $slot reminder"
+                }
+            } else {
+                notes += "$slot is due at ${Reminders.clockText(target)}"
             }
         }
 
@@ -302,9 +366,14 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 .filter { !it.isNull("due_status") && it.optString("due_status") in setOf("today", "overdue") }
                 .map { it.optString("title") }
             if (due.isNotEmpty()) {
-                if (Reminders.postTasks(c, due)) Reminders.markSent(c, Reminders.TASKS_SLOT)
+                if (Reminders.postTasks(c, due)) {
+                    Reminders.markSent(c, Reminders.TASKS_SLOT)
+                    notes += "sent the tasks reminder"
+                }
             }
         }
+        Reminders.recordCheck(c, notes.joinToString("; ").ifBlank { "nothing due" })
+        Reminders.scheduleNextAlarm(c, usualHours)
         return Result.success()
     }
 
@@ -317,6 +386,16 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
             return JSONObject(fresh)
         }
         return BlakeDatabase.get(c).todayDao().observe().first()?.let { JSONObject(it.json) }
+    }
+}
+
+/** Fired by the alarm at a reminder time: runs one check (which posts it and arms the next alarm). */
+class ReminderAlarmReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(
+            "blake-reminders-now", androidx.work.ExistingWorkPolicy.REPLACE,
+            androidx.work.OneTimeWorkRequestBuilder<ReminderWorker>().build(),
+        )
     }
 }
 

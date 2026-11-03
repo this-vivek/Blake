@@ -134,6 +134,14 @@ FOODS = {
     "coconut oil": (862, 0.0, 0.0, 100.0),
     "mayonnaise": (680, 1.0, 0.6, 75.0),
     "ketchup": (112, 1.2, 27.0, 0.1),
+    # chutneys (approximate; they vary a lot by recipe, so edit the grams, not the table)
+    "chutney": (60, 2.0, 8.0, 2.5),
+    "green chutney": (45, 2.5, 7.0, 0.8),
+    "mint chutney": (45, 2.5, 7.0, 0.8),
+    "coconut chutney": (210, 2.5, 9.0, 19.0),
+    "tomato chutney": (95, 1.5, 12.0, 5.0),
+    "tamarind chutney": (170, 1.0, 42.0, 0.5),
+    "peanut chutney": (330, 12.0, 14.0, 25.0),
     # common Indian dishes (composite, sourced below) — added so a dish name is itself
     # matchable rather than only its individual ingredients (ROADMAP-NEXTGEN.md P5)
     "egg curry": (158, 9.5, 4.0, 12.0),
@@ -169,7 +177,7 @@ FOOD_ALIASES: dict[str, str] = {
     "matar": "peas", "tamatar": "tomato", "pyaz": "onion", "aloo": "potato",
     "gajar": "carrot", "kheera": "cucumber", "mushrooms": "mushroom",
     "dahi": "curd", "chana": "chickpea", "chickpeas": "chickpea", "moong": "lentils",
-    "anda": "egg", "eggs": "egg", "chapatti": "chapati", "phulka": "roti",
+    "anda": "egg", "chatni": "chutney", "chutneys": "chutney", "eggs": "egg", "chapatti": "chapati", "phulka": "roti",
     "tomatoes": "tomato", "potatoes": "potato", "onions": "onion", "carrots": "carrot",
     "bananas": "banana", "apples": "apple", "oranges": "orange", "mangoes": "mango",
 }
@@ -231,6 +239,8 @@ DEFAULT_SERVING_G: dict[str, float] = {
     "spinach": 100.0, "beans": 100.0, "tomato": 80.0, "onion": 50.0, "carrot": 60.0,
     "cucumber": 80.0, "dal": 150.0, "sambar": 150.0, "rice": 150.0, "curd": 100.0,
     "roti": 40.0, "chapati": 40.0, "egg": 50.0, "milk": 200.0, "paneer": 80.0,
+    "chutney": 30.0, "green chutney": 30.0, "mint chutney": 30.0, "coconut chutney": 40.0,
+    "tomato chutney": 30.0, "tamarind chutney": 20.0, "peanut chutney": 30.0,
 }
 GENERIC_DEFAULT_SERVING_G = 100.0
 

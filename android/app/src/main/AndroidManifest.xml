@@ -31,6 +31,9 @@
         <receiver
             android:name=".LogUsualReceiver"
             android:exported="false" />
+        <receiver
+            android:name=".ReminderAlarmReceiver"
+            android:exported="false" />
 
         <receiver
             android:name=".BlakeWidgetReceiver"

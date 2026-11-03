@@ -29,6 +29,7 @@ import androidx.navigation.compose.rememberNavController
 import com.blake.app.ui.theme.BlakeIcons
 import com.blake.app.ui.theme.BlakeTheme
 import com.blake.app.ui.theme.blake
+import com.blake.app.ui.theme.tappable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -102,7 +103,7 @@ private fun NavTab(dest: NavDestination, selected: Boolean, onClick: () -> Unit,
     Column(
         modifier = modifier
             .heightIn(min = 52.dp)
-            .clickable(onClick = onClick),
+            .tappable(0.9f, onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
     ) {
@@ -141,7 +142,7 @@ private fun BlakeNavBar(currentRoute: String?, onNavigate: (String) -> Unit, onL
                         .size(56.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primary)
-                        .clickable(onClick = onLog),
+                        .tappable(0.88f, onLog),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(

@@ -366,6 +366,9 @@ private fun ReminderCard(context: Context) {
                 else "Blocked: notifications are off for Blake in the phone's settings."
             })
         }
+        Reminders.lastCheckText(context)?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         if (testResult.isNotBlank()) {
             Text(testResult, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

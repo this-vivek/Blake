@@ -166,3 +166,17 @@ def test_valid_per100_bounds():
     assert not valid_per100({"kcal": -1, "protein": 1, "carbs": 1, "fat": 1})
     assert not valid_per100({"kcal": 100, "protein": 50, "carbs": 50, "fat": 50})
     assert not valid_per100({"kcal": 100})
+
+
+@pytest.mark.parametrize("said,expected", [
+    ("chutney", "chutney"),
+    ("coconut chutney", "coconut chutney"),
+    ("green chutney", "green chutney"),
+    ("mint chutney", "mint chutney"),
+    ("tamarind chutney", "tamarind chutney"),
+    ("chatni", "chutney"),
+    ("idli with coconut chutney", "coconut chutney"),
+])
+def test_chutneys_are_in_the_food_list(said, expected):
+    match = _match(said)
+    assert match is not None and match[0] == expected
