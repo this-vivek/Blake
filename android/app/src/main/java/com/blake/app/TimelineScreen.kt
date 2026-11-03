@@ -441,8 +441,7 @@ private fun DayCard(day: DayGroup, open: Boolean, onToggle: () -> Unit, vm: Time
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(Radius.lg))
-                    .clickable(onClick = onToggle)
+                    .tappable(RoundedCornerShape(Radius.lg), 0.98f, onToggle)
                     .padding(Spacing.lg),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Spacing.md),
@@ -486,7 +485,7 @@ private fun EntryRow(entry: TimelineEntry, vm: TimelineViewModel) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = expandable) { open = !open }
+            .then(if (expandable) Modifier.tappable(pressedScale = 0.99f) { open = !open } else Modifier)
             .padding(vertical = Spacing.md),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {

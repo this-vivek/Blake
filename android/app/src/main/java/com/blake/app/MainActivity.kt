@@ -103,7 +103,7 @@ private fun NavTab(dest: NavDestination, selected: Boolean, onClick: () -> Unit,
     Column(
         modifier = modifier
             .heightIn(min = 52.dp)
-            .tappable(0.9f, onClick),
+            .tappable(pressedScale = 0.9f, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
     ) {
@@ -140,9 +140,8 @@ private fun BlakeNavBar(currentRoute: String?, onNavigate: (String) -> Unit, onL
                 Box(
                     modifier = Modifier
                         .size(56.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                        .tappable(0.88f, onLog),
+                        .tappable(CircleShape, 0.88f, onLog)
+                        .background(MaterialTheme.colorScheme.primary),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(

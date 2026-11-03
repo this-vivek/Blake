@@ -513,7 +513,7 @@ private fun TasksCard(vm: TodayViewModel, context: Context, onAdd: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 48.dp)
-                    .tappable(0.98f) { vm.completeTask(context, id) },
+                    .tappable(pressedScale = 0.98f) { vm.completeTask(context, id) },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {

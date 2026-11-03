@@ -754,9 +754,8 @@ private fun StepButton(glyph: String, description: String, onClick: () -> Unit) 
     Box(
         modifier = Modifier
             .size(48.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onClick),
+            .tappable(CircleShape, 0.88f, onClick)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         Text(glyph, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
